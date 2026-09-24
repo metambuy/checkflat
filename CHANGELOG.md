@@ -6,4 +6,4 @@
 - Spike A: PDF.js viewer for a real A1 plan with capped base render + viewport tile on zoom; pan/pinch/wheel gestures.
 - Spike B: camera capture via `<input capture>` on Android WebView.
 - Spike C: one-page PDF (title, image, PT text) from Rust with embedded Typst and with printpdf; unit tests per engine.
-- `docs/decisions.md` D-001…D-006.
+- `docs/decisions.md` D-001…D-006. CI run blocked by GitHub billing on the account; workflow linted and Android commands validated locally (D-005).

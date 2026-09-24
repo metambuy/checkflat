@@ -82,20 +82,22 @@ Format: one entry per decision — Context / Options / Outcome / Recommendation.
 | render, tablet emulator (debug) | 496 ms | 600 ms |
 | clean release build of the spike crate | 53 s | 30 s |
 | incremental rebuild | 2 s | 1 s |
-| release APK, aarch64, only this engine | _see below_ | _see below_ |
+| release APK, aarch64, only this engine | 38.2 MB | 12.4 MB |
 | layout code written | 30-line `.typ` template | ~150 lines of Rust for the same page, still left-aligned |
 | PT diacritics, justification, page footer | all correct | diacritics correct; justification/hyphenation would need writing |
 | unit test (`%PDF` header, non-empty) | pass | pass |
 
 APK sizes (release profile: LTO, opt-level s, stripped; aarch64; unsigned):
 
-| variant | APK | native lib |
-|---|---|---|
-| both engines | _pending_ | _pending_ |
-| typst only | _pending_ | _pending_ |
-| printpdf only | _pending_ | _pending_ |
+| variant | APK | `libcheckflat_lib.so` | full release build incl. Gradle (host, warm deps) |
+|---|---|---|---|
+| both engines | 39.5 MB | 36.9 MB | 138 s (cold deps) |
+| typst only | 38.2 MB | 35.6 MB | 82 s |
+| printpdf only | 12.4 MB | 9.8 MB | 52 s |
 
-**Recommendation.** **Embedded Typst.** It is faster at render time, produces PDFs five times smaller, and — the decisive point — the whole report layout (Aproplan-like blocks, summary table, EN/PT strings, page numbers) becomes a template instead of hand-placed operators. Its costs are compile time (~25 s more on a clean build) and binary size (numbers above). Keep printpdf out of Sprint 5 unless the APK delta turns out to be unacceptable on the client's phone; the `report-spike` feature split shows how to swap. Follow-ups for Sprint 5: Typst `lang: "pt"` hyphenation, a font with wider coverage if the client's logos/texts need it, and image downscaling in Rust before embedding (the `image` crate, plan §3).
+So **Typst costs ~26 MB of APK** (measured locally with the same commands CI runs; CI itself did not run, see D-005). For reference the Tauri shell + printpdf alone is 12.4 MB.
+
+**Recommendation.** **Embedded Typst**, accepting the ~26 MB APK cost. Reasons: render time and PDF size are better (5× smaller reports matter when they are shared from a phone), and — the decisive point — the whole report layout (Aproplan-like blocks, summary table, EN/PT strings, page numbers, later a table of open items) becomes a 30-line template instead of hand-placed operators with hand-written line breaking; every layout change in Sprints 5–8 would otherwise be Rust geometry code. A 38 MB single-user field app is well inside what the client's Android phone and Windows laptop tolerate. Two mitigations to try in Sprint 5 before accepting the full delta: depend on `typst` + `typst-pdf` directly instead of `typst-as-lib` (which also pulls `typst-html` and `typst-svg`), and check what `opt-level = "z"` saves. If the delta cannot be brought under ~15 MB **and** the client objects to the download size, printpdf remains viable: the spike shows the layout work is feasible, just manual (`printpdf_engine.rs`), and the `report-spike` feature split shows how to swap. Other Sprint 5 follow-ups: Typst `lang: "pt"` hyphenation, a font with wider coverage if client logos/texts need it, and image downscaling in Rust before embedding (the `image` crate, plan §3).
 
 ## D-005 — CI layout (2026-09-24)
 **Context.** Dev machine is macOS; Windows and Android builds must come from CI. Spike C needs APK size per report engine.
@@ -106,6 +108,9 @@ APK sizes (release profile: LTO, opt-level s, stripped; aarch64; unsigned):
 - `windows` job: `cargo test -p report-spike --features typst,printpdf`, then `pnpm tauri build --bundles nsis`; uploads `target/release/bundle/nsis/*.exe` as `windows-nsis`.
 - Caches: `Swatinem/rust-cache` on the workspace root, pnpm store via `actions/setup-node`.
 - Debug APKs use the default debug keystore; no signing secrets in Sprint 0.
+- Engine variants: the app crate has no default engine features; `tauri.conf.json` `build.features` lists both, and CI overrides it per variant with `-c '{"build":{"features":[...]}}'` because the Tauri CLI has no `--no-default-features`.
+
+**Status (2026-09-24).** The first run (`run 36029944232`) did **not execute**: GitHub refused both jobs with "recent account payments have failed or your spending limit needs to be increased" — private-repo Actions minutes are billed. Until billing is fixed on the `metambuy` account (or the repo is made public), CI is unverified. What was verified instead: `actionlint` passes on the workflow; the Android commands (`tauri android build --apk --target aarch64`, with and without the `-c` override, and `--debug`) were run locally on macOS with the same SDK/NDK versions and produced the APKs measured in D-004; `cargo test -p report-spike --features typst,printpdf` passes locally. The Windows NSIS job has not been exercised anywhere yet. **Action:** fix billing, re-run the workflow (`gh run rerun` or `workflow_dispatch`), then fill the APK-size step summary into D-004 if it differs from the local numbers.
 
 ## D-006 — Sprint 0 exit check on a real Android phone (pending)
 **Context.** All Spike A/B measurements above come from emulators on an M4 Pro host. The sprint exit criterion is "APK opens a plan, takes a photo, outputs a PDF" on hardware.
