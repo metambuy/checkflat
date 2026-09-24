@@ -1,0 +1,17 @@
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  color: #1a1a1a;
+  background: #f4f4f4;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+#app { height: 100%; display: flex; flex-direction: column; }
+button {
+  font: inherit; padding: 0.5rem 0.9rem; border-radius: 6px; border: 1px solid #bbb;
+  background: #fff; cursor: pointer; touch-action: manipulation;
+}
+button:active { background: #e6e6e6; }
+pre { font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 0.5rem 0; }
+.muted { color: #666; font-size: 13px; }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Package visibility (Android 11+): lets the app see camera apps that handle IMAGE_CAPTURE.
+         Deliberately NO android.permission.CAMERA: ACTION_IMAGE_CAPTURE does not need it, and declaring
+         it without a runtime grant makes the intent throw SecurityException. -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+</manifest>

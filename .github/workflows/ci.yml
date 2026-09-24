@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
+  pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  android:
+    name: Android debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build debug APK (both report engines, installable)
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+        run: |
+          pnpm tauri android build --debug --apk --target aarch64
+          mkdir -p out
+          cp src-tauri/gen/android/app/build/outputs/apk/*/debug/*.apk out/checkflat-debug-both.apk
+
+      # Spike C: shipped size per report engine. Release profile (LTO, opt-level s, strip), unsigned APK —
+      # only the size is of interest. The engine set comes from tauri.conf.json `build.features`,
+      # overridden per variant with `-c` (the Tauri CLI has no --no-default-features).
+      - name: Release APK size — both engines
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+        run: |
+          pnpm tauri android build --apk --target aarch64
+          cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk out/checkflat-release-both.apk
+      - name: Release APK size — typst only
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+        run: |
+          pnpm tauri android build --apk --target aarch64 -c '{"build":{"features":["report-typst"]}}'
+          cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk out/checkflat-release-typst.apk
+      - name: Release APK size — printpdf only
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+        run: |
+          pnpm tauri android build --apk --target aarch64 -c '{"build":{"features":["report-printpdf"]}}'
+          cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk out/checkflat-release-printpdf.apk
+
+      - name: APK sizes
+        run: |
+          { echo "### APK sizes (aarch64)"; echo; echo '| variant | bytes | MB |'; echo '|---|---|---|';
+            for f in out/*.apk; do b=$(stat -c %s "$f"); echo "| $(basename "$f") | $b | $(awk "BEGIN{printf \"%.1f\", $b/1048576}") |"; done; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: out/*.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows NSIS installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Spike C unit tests (both engines)
+        run: cargo test -p report-spike --features typst,printpdf
+
+      - name: Build NSIS installer
+        run: pnpm tauri build --bundles nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error

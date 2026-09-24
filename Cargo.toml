@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "src-tauri/plugins/camera-capture", "spikes/report-spike"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+# Debug builds: keep line tables for our crates, no debug info for dependencies
+# (typst + friends otherwise push the debug APK past 700 MB).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

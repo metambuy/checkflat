@@ -1,0 +1,3 @@
+[default]
+description = "Allows taking a photo with the system camera app"
+permissions = ["allow-capture"]

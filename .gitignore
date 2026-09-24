@@ -1,0 +1,28 @@
+.DS_Store
+node_modules/
+dist/
+target/
+*.log
+.env
+
+# Client data — never commit
+Examples/
+public/spike/
+
+# Generated at install/build time
+public/pdfjs/
+
+# Android build outputs
+src-tauri/gen/android/**/build/
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/local.properties
+src-tauri/gen/android/.idea/
+src-tauri/gen/android/key.properties
+*.keystore
+*.jks
+
+# Spike outputs
+spikes/out/
+
+# Symlinked native libs created by `tauri android dev`
+src-tauri/gen/android/app/src/main/jniLibs/

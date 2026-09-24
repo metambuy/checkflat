@@ -1,0 +1,17 @@
+[package]
+name = "tauri-plugin-camera-capture"
+version = "0.1.0"
+authors = ["Checkflat"]
+description = "Minimal Tauri mobile plugin: take a photo with the system camera app (ACTION_IMAGE_CAPTURE) and return the file path."
+edition = "2021"
+rust-version = "1.85"
+publish = false
+links = "tauri-plugin-camera-capture"
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

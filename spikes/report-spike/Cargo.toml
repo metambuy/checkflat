@@ -1,0 +1,17 @@
+[package]
+name = "report-spike"
+version = "0.0.1"
+edition = "2021"
+description = "Sprint 0 Spike C: 1-page PDF from Rust — embedded Typst vs printpdf"
+publish = false
+
+[features]
+default = []
+typst = ["dep:typst", "dep:typst-pdf", "dep:typst-as-lib"]
+printpdf = ["dep:printpdf"]
+
+[dependencies]
+typst = { version = "0.15", optional = true }
+typst-pdf = { version = "0.15", optional = true }
+typst-as-lib = { version = "0.16", optional = true }
+printpdf = { version = "0.12", optional = true, default-features = false, features = ["jpeg"] }
