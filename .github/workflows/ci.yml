@@ -57,7 +57,52 @@ jobs:
           mkdir -p out
           cp src-tauri/gen/android/app/build/outputs/apk/*/debug/*.apk out/checkflat-debug-both.apk
 
-      # Spike C: shipped size per report engine. Release profile (LTO, opt-level s, strip), unsigned APK —
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: out/*.apk
+          if-no-files-found: error
+
+  # Spike C size comparison: three release APKs (both / typst only / printpdf only).
+  # Manual only (workflow_dispatch) — too slow for every push, and the numbers only matter when the engine choice is revisited.
+  android-size:
+    name: Android release APK sizes (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare output dir
+        run: mkdir -p out
+
+      # Spike C: shipped size per report engine. Release profile (LTO, opt-level z, strip), unsigned APK —
       # only the size is of interest. The engine set comes from tauri.conf.json `build.features`,
       # overridden per variant with `-c` (the Tauri CLI has no --no-default-features).
       - name: Release APK size — both engines
@@ -86,7 +131,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apks
+          name: android-release-apks
           path: out/*.apk
           if-no-files-found: error
 
