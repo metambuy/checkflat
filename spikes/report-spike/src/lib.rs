@@ -74,6 +74,7 @@ impl Engine {
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// Render the report to PDF bytes with the chosen engine.
+#[allow(unused_variables)] // `report` is unused when no engine feature is enabled
 pub fn render(engine: Engine, report: &Report) -> Result<Vec<u8>, Error> {
     match engine {
         #[cfg(feature = "typst")]

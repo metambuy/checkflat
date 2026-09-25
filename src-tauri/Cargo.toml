@@ -19,6 +19,10 @@ serde_json = "1"
 base64 = "0.22"
 report-spike = { path = "../spikes/report-spike", default-features = false }
 tauri-plugin-camera-capture = { path = "plugins/camera-capture" }
+checkflat-core = { path = "../crates/checkflat-core" }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+log = "0.4"
 
 [features]
 # No default engines: tauri.conf.json `build.features` selects them (CI overrides it per variant with `-c`).

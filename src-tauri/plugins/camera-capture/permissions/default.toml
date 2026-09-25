@@ -1,3 +1,3 @@
 [default]
-description = "Allows taking a photo with the system camera app"
-permissions = ["allow-capture"]
+description = "Allows taking a photo with the system camera app and resolving display names of picked files"
+permissions = ["allow-capture", "allow-display-name"]

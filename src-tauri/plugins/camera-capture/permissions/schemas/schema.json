@@ -307,10 +307,22 @@
           "markdownDescription": "Denies the capture command without any pre-configured scope."
         },
         {
-          "description": "Allows taking a photo with the system camera app\n#### This default permission set includes:\n\n- `allow-capture`",
+          "description": "Enables the display_name command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-display-name",
+          "markdownDescription": "Enables the display_name command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the display_name command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-display-name",
+          "markdownDescription": "Denies the display_name command without any pre-configured scope."
+        },
+        {
+          "description": "Allows taking a photo with the system camera app and resolving display names of picked files\n#### This default permission set includes:\n\n- `allow-capture`\n- `allow-display-name`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows taking a photo with the system camera app\n#### This default permission set includes:\n\n- `allow-capture`"
+          "markdownDescription": "Allows taking a photo with the system camera app and resolving display names of picked files\n#### This default permission set includes:\n\n- `allow-capture`\n- `allow-display-name`"
         }
       ]
     }

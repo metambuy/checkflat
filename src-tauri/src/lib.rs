@@ -1,9 +1,16 @@
-//! Checkflat — Sprint 0 spike shell. Only spike commands live here; no product code yet.
+//! Checkflat Tauri shell: thin commands over `checkflat-core`, plus the Sprint 0 spike commands
+//! (report engines, camera) that the dev screen still uses.
+
+mod commands;
+mod error;
+mod state;
 
 use base64::Engine as _;
 use serde::Serialize;
 use std::time::Instant;
 use tauri::Manager;
+
+use state::AppState;
 
 #[derive(Serialize)]
 struct PlatformInfo {
@@ -84,7 +91,39 @@ async fn capture_photo(app: tauri::AppHandle) -> Result<PhotoResult, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_camera_capture::init())
-        .invoke_handler(tauri::generate_handler![platform_info, generate_report, capture_photo])
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let opened = checkflat_core::db::open(&data_dir.join("checkflat.db"))?;
+            // Startup maintenance (quarantine, never delete; skipped for a fresh database).
+            match checkflat_core::paths::sweep_orphans(&opened.conn, &data_dir, opened.freshly_created) {
+                Ok(report) => log::info!("sweep: {report:?}"),
+                Err(e) => log::warn!("sweep failed: {e}"),
+            }
+            app.manage(AppState::new(opened.conn, data_dir));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            platform_info,
+            generate_report,
+            capture_photo,
+            commands::projects::list_projects,
+            commands::projects::get_project,
+            commands::projects::create_project,
+            commands::projects::rename_project,
+            commands::projects::update_project_address,
+            commands::projects::delete_project,
+            commands::plans::stage_plan_source,
+            commands::plans::import_plan,
+            commands::plans::discard_staged_plan,
+            commands::plans::list_plans,
+            commands::plans::rename_plan,
+            commands::plans::delete_plan,
+            commands::settings::get_setting,
+            commands::settings::set_setting,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -26,4 +26,10 @@ impl<R: Runtime> CameraCapture<R> {
     pub fn capture(&self) -> crate::Result<CaptureResponse> {
         self.0.run_mobile_plugin("capture", ()).map_err(Into::into)
     }
+
+    /// Display name of a `content://` or `file://` URI (ContentResolver query on a background thread).
+    pub fn display_name(&self, uri: String) -> crate::Result<Option<String>> {
+        let r: DisplayNameResponse = self.0.run_mobile_plugin("displayName", DisplayNameArgs { uri })?;
+        Ok(r.name)
+    }
 }
