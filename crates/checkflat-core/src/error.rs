@@ -14,6 +14,8 @@ pub enum CoreError {
     InvalidPath(String),
     #[error("not found")]
     NotFound,
+    #[error("validation failed: {0}")]
+    Validation(String),
 }
 
 impl CoreError {
@@ -25,6 +27,7 @@ impl CoreError {
             CoreError::Io(_) => "io",
             CoreError::InvalidPath(_) => "invalid_path",
             CoreError::NotFound => "not_found",
+            CoreError::Validation(_) => "validation",
         }
     }
 }

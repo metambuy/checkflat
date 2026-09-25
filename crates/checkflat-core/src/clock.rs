@@ -14,6 +14,11 @@ pub fn format_iso(t: OffsetDateTime) -> String {
     t.format(&Rfc3339).expect("RFC 3339 formatting cannot fail for UTC")
 }
 
+/// Filesystem-safe variant of [`now_iso`] (no `:` or `.`), e.g. `20260925T100312345Z`.
+pub fn now_compact() -> String {
+    now_iso().chars().filter(|c| !matches!(c, ':' | '-' | '.')).collect()
+}
+
 pub fn parse_iso(s: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(s, &Rfc3339).ok()
 }
