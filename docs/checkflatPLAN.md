@@ -89,6 +89,8 @@ Note: observations belong to the project (not one visit) so they can carry over;
 ### M1 — Plans & pins
 - **Sprint 1** ✅ (2026-09-25): SQLite schema + migrations; projects CRUD; plan import; EN/PT i18n setup. Decisions D-008…D-013.
 - **Sprint 2**: plan viewer (pan/zoom); tap/drag pins; responsive layout phone/tablet/desktop.
+  - Step 1 — viewer spike (≤ 1 day, after D-006): `VITE_SPIKES` flag so a release APK shows the Dev screen; PDF.js stage profile (document / operator list + image decode / rasterise, legacy vs modern build, A1 vs A4); on the P30 Pro compare (1) D-002 revised (1024 px quick pass → 3072 px base + viewport tile) vs (2) import-time tile pyramid (512 px tiles, 4 levels, WebP on disk, viewer shows images only; incl. generation time, disk size, peak PSS while generating, backgrounding). Targets for the client's 2024–25 phone: first view ≤ 4 s, total PSS (app + WebView renderer) ≤ 300 MB at 8×, smooth pan; on the P30 Pro time targets are scaled ×2 (≤ 8 s), memory is not. Result → D-014; then a checkpoint before the rest of the sprint. Release APKs and `dist/` from the spike are deleted afterwards (client plan bundled).
+  - Then: viewer with the chosen design; tap places a **draft** pin (no ref_no) with Confirm/Cancel — ref_no is taken from `next_ref_no` only on confirm (Sprint 3: observation sheet save), so cancelled drafts leave no gaps; drag to adjust; stored as `x_norm`/`y_norm`; Android back handling; responsive layout (tablet/desktop side panel moves to Sprint 4 if the sprint runs long); asset protocol scoped to `projects/**` (resolves the D-007 item); address field save feedback.
 - *Exit*: pins persist after restart, on phone and tablet.
 
 ### M2 — Observations & photos

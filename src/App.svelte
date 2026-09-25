@@ -5,7 +5,10 @@
   import LanguageSwitch from "./lib/components/LanguageSwitch.svelte";
   import ProjectsScreen from "./lib/screens/ProjectsScreen.svelte";
   import ProjectScreen from "./lib/screens/ProjectScreen.svelte";
-  import DevScreen from "./lib/dev/DevScreen.svelte";
+  // Spikes (Dev screen): dev builds, or a release build made with VITE_SPIKES=1 (D-006/D-014 device
+  // measurements). Both are replaced at build time, so a normal release bundle drops the Dev chunk.
+  const SPIKES = import.meta.env.DEV || import.meta.env.VITE_SPIKES === "1";
+  const devScreen = SPIKES ? import("./lib/dev/DevScreen.svelte") : null;
 
   let ready = $state(false);
   onMount(async () => {
@@ -18,7 +21,7 @@
 <header>
   <button class="plain brand" onclick={() => go({ name: "projects" })}>{t("app.title")}</button>
   <span class="grow"></span>
-  {#if import.meta.env.DEV}
+  {#if SPIKES}
     <button class="dev" onclick={() => go({ name: "dev" })}>{t("nav.dev")}</button>
   {/if}
   <LanguageSwitch />
@@ -31,8 +34,8 @@
     <ProjectsScreen />
   {:else if s.name === "project"}
     {#key s.id}<ProjectScreen id={s.id} />{/key}
-  {:else}
-    <DevScreen />
+  {:else if devScreen}
+    {#await devScreen then m}<m.default />{/await}
   {/if}
 </main>
 
