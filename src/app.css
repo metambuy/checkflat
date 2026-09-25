@@ -15,3 +15,22 @@ button {
 button:active { background: #e6e6e6; }
 pre { font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 0.5rem 0; }
 .muted { color: #666; font-size: 13px; }
+
+/* Layout + shared components (Sprint 1) */
+.container { max-width: 720px; margin: 0 auto; padding: 0.75rem 16px calc(1rem + env(safe-area-inset-bottom)); }
+h1 { font-size: 1.4rem; margin: 0.5rem 0; }
+h2 { font-size: 1.1rem; margin: 0.75rem 0 0.25rem; }
+.card { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 0.75rem; margin: 0.5rem 0; }
+.list { list-style: none; margin: 0; padding: 0; }
+.row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.plain { background: none; border: none; text-align: left; padding: 0.3rem 0.2rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.plain strong { font-size: 1.05rem; }
+.back { color: #143c78; }
+.primary { background: #143c78; color: #fff; border-color: #143c78; }
+.danger { color: #b3261e; border-color: #e3a4a8; }
+button { min-height: 44px; }
+button:disabled { opacity: 0.5; cursor: default; }
+label { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.4rem 0; font-size: 0.9rem; color: #444; }
+input { font: inherit; padding: 0.55rem 0.7rem; border: 1px solid #bbb; border-radius: 6px; min-height: 44px; }
+form .actions, .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
