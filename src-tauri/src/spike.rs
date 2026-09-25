@@ -49,6 +49,12 @@ pub fn spike_write_tile(app: AppHandle, request: tauri::ipc::Request<'_>) -> Res
     let json_bytes;
     let bytes: &[u8] = match request.body() {
         tauri::ipc::InvokeBody::Raw(b) => b,
+        // A string body is base64 (what the spike sends on Android to avoid number arrays).
+        tauri::ipc::InvokeBody::Json(serde_json::Value::String(b64)) => {
+            use base64::Engine as _;
+            json_bytes = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| format!("body: {e}"))?;
+            &json_bytes
+        }
         tauri::ipc::InvokeBody::Json(v) => {
             json_bytes = serde_json::from_value::<Vec<u8>>(v.clone()).map_err(|e| format!("body: {e}"))?;
             &json_bytes

@@ -51,6 +51,8 @@ Format: one entry per decision — Context / Options / Outcome / Recommendation.
 - Re-measure on the P30 Pro with a release build before closing Sprint 2. If total PSS at 8× is still over ~300 MB, drop the tile's DPR cap to 1.5 and investigate the renderer's 724 MB "Unknown" (software-drawn canvas vs PDF.js image cache).
 Pinch-zoom (`src/lib/dev/gestures.ts`) works with a real two-finger pinch on the device. The flashing when panning at max zoom is Sprint 2 viewer work.
 
+**Superseded by D-014 (proposed 2026-09-25).** The release-build spike showed that the open PDF.js document, not the canvases, holds ~780 MB for the A1 plan, and that the quick pass does not shorten first view. The viewer shows an import-time tile pyramid instead. The legacy build stays.
+
 ## D-003 — Spike B: camera capture on Android (2026-09-24)
 **Context.** Risk "Camera capture in Android WebView" (plan §6). Photos are the core of every observation.
 
@@ -150,6 +152,9 @@ So **Typst costs ~22–24 MB of APK** on top of the ~11 MB Tauri shell + printpd
 
 **Recommendation.** The sprint exit criterion (plan, photo, PDF) is **met on hardware**, and Typst stays the report engine (D-004). The viewer fails both limits (first render > 4 s, total PSS > 300 MB), so D-002 is revised. Before Sprint 2 decisions are final, re-measure first render with a bundled frontend, to separate PDF.js speed from the dev-server overhead. Any `tauri android build` runs `vite build`, which hides the Dev screen, so this needs a temporary switch (e.g. a `VITE_SPIKES` env flag next to `import.meta.env.DEV`) or the Sprint 2 viewer itself.
 
+
+**Re-measured with a release build (D-014, 2026-09-25):** the D-006 viewer configuration opens in 7.4 s (not 17.9 s) with a release build and bundled frontend; total PSS at 8× is still ~916 MB. The `VITE_SPIKES` flag now shows the Dev screen in release builds (never set in CI).
+
 ## D-007 — Sprint 0 code review: applied and deferred items (2026-09-25)
 **Context.** Review of the code that carries into later sprints (CI workflow, camera plugin, capabilities/CSP, release profile, gitignore).
 
@@ -191,3 +196,62 @@ So **Typst costs ~22–24 MB of APK** on top of the ~11 MB Tauri shell + printpd
 - **Display name on Android** comes from a `displayName` command added to the existing Kotlin plugin (`OpenableColumns.DISPLAY_NAME` on a background thread, sanitized); desktop uses the file name. The plugin now acts as the app's Android bridge; renaming it is a later, separate change.
 - `observation.plan_id` uses the composite FK `(plan_id, project_id) → plan(id, project_id)` with the default **`NO ACTION`**, not `RESTRICT`: RESTRICT is checked immediately per row and could make a project delete fail depending on cascade order, NO ACTION is checked at statement end (sqlite.org/foreignkeys.html §4.3). The app refuses to delete a plan that has observations (`plan_has_observations`); the FK is the safety net; the composite key also guarantees plan and observation belong to the same project.
 - **Command threading rule:** every command is `async`, awaits (fs open, plugin calls) come first, then DB/disk work runs in `spawn_blocking` holding the `std::sync::Mutex<Connection>` — a guard can never live across an `.await` (it is not `Send`); poisoned locks are recovered.
+
+## D-014 — Viewer design: import-time tile pyramid (Sprint 2 spike, 2026-09-25) — *proposed, awaiting approval*
+**Context.** D-006 measured the Sprint 0 viewer on the Huawei P30 Pro at 17.9 s first render and ~911 MB total PSS at 8×. The client will use a 2024–25 phone; the P30 (2019) is the only real device. Targets for the client phone: first view ≤ 4 s, total PSS (app + WebView renderer) ≤ 300 MB at 8×, smooth pan. **On the P30 time targets are scaled ×2 (≤ 8 s); memory is not scaled** (it depends on the content and screen, not on CPU speed).
+
+**Procedure.** Release APK (`VITE_SPIKES=1 pnpm tauri android build --apk --target aarch64`, signed with the debug key), P30 Pro VOG-L29, Android 10, WebView **153.0.8010.36**, A1 plan `c-JS00-AM01.pdf`, PDF.js 6.3.289. Spike screen: Dev → Plan (`src/lib/dev/ViewerSpike.svelte`). Every run logs to `getExternalFilesDir(DOCUMENTS)/spike.log` (readable with `adb shell cat` on a release build; EMUI hides the console). `spikes/pss.sh` samples app + renderer PSS every ~1 s. Each design runs the same script: first view → 8× at the centre → 4 s programmatic pan measured with `requestAnimationFrame` → settle; then a manual finger pan. The same runs were done first on the `Phone_API35` emulator; the pattern matched (the P30 is ~3× slower).
+
+**Profile (step 1b, P30, A1, legacy build).** The plan has **99,167 operators** (78k paths) plus five images, two of them large (6099×5423 and 957×9038, each JPEG with a same-size SMask); PDF.js delivers them as ImageBitmaps decoded in the worker.
+
+| stage | time | renderer PSS after |
+|---|---|---|
+| fetch + getDocument + getPage | 0.25 s | 76 MB |
+| getOperatorList (parse + image decode) | **4.7 s** | ~720 MB |
+| first render, 1024 px (first draw of the big bitmaps) | **4.3 s** | ~910 MB |
+| second render, 3072 px (pure rasterising) | 0.75 s | ~940 MB |
+| 8× viewport tile 720×1560 | 0.46 s | ~930 MB |
+| canvases released + `page.cleanup()` | – | ~895 MB |
+| loading task destroyed | – | **165 MB** |
+
+- Peak total 1180 MB. **An open document of this plan costs ~780 MB in the renderer, the canvases ~50 MB.** Releasing canvases (D-002 revision) cannot fix memory; only closing the document does.
+- **Modern build:** no faster (getOperatorList 6.4 s, first render 4.3 s, peak 1040 MB). The legacy build stays (it also covers WebView < 126).
+- **A4 plan `1A.pdf`** (18.5k operators, two ~1.4 Mpx images): getOperatorList 0.67 s, first render 0.54 s, 8× tile 0.13 s, but still **403 MB** peak total with the document open.
+- The dev build in D-006 roughly doubled the time: release D0 (D-006 configuration, 4096 base, no quick pass) gives a 7.4 s first view against 17.9 s.
+
+**Designs compared (step 1c, P30, A1).**
+
+| metric | P30 target | D0 (D-006 config, release) | **1** D-002 revised: 1024 quick → 3072 base + tile | **2** tile pyramid |
+|---|---|---|---|---|
+| first view | ≤ 8 s | 7.4 s | 6.8 s (quick pass alone 6.5 s); 10.1 s in a second run | **49 ms** (147 ms in a second run) |
+| 8× sharp | – | 0.53 s | 0.50 s | **0.1 s** |
+| total PSS peak at 8× | ≤ 300 MB | 916 MB | **909 MB** ✗ | **221 MB** ✓ |
+| scripted pan at 8× | smooth | 60 fps, max frame 33 ms | 59 fps, max 33 ms | 60 fps, max 33 ms |
+| manual pan | smooth | – | smooth, but a blurry→sharp "pop" 340–590 ms after every gesture (tile re-render) | smooth, no re-render |
+| one-off generation | – | – | – | **42–44 s**, 256 WebP tiles, **3.9 MB** on disk |
+| peak total PSS while generating | (≤ ~600 MB) | – | – | **1379 MB** ✗ (renderer 950 + app 430) |
+
+Pyramid parameters: levels 1024/2048/4096/8192 px on the long side, 512 px tiles, rendered in 2048 px blocks (one document, ~17 renders), `toBlob("image/webp", 0.8)`, written by a Rust command. Viewer: the 1024 level is always underneath (never blank); the level with ≥ 1 source px per device px is chosen when a gesture settles, and only its visible tiles are in the DOM; PDF.js is never loaded while viewing. No seams visible at 8× (half a source pixel of overlap).
+
+Generation details (P30, WebP): render 14.9–21.4 s, encode 18–19 s, write 8.8 s with a `Uint8Array` body, **2.3 s with a base64 string** (Tauri's Android IPC turns a `Uint8Array` into a JSON number array; desktop gets a raw body). JPEG (q 0.85) was **much slower** on this WebView (level 4096: 197 s against 7 s for WebP) and twice the size; abandoned. The 1024 level (first viewable) is ready after ~8–11 s, which includes the one-off 9 s of operator list + first draw.
+
+**Backgrounding.** Home pressed 3 s into generation, back after 60 s: on the P30 (Android 10) and on the API 35 emulator (Android 15 cached-app freezer) the WebView **paused** rendering while hidden (`visibilitychange` → hidden), the app survived, and generation **resumed** on return and finished. Nothing is lost, but nothing progresses in the background.
+
+**Recommendation.** **Design 2, import-time tile pyramid.** It is the only design that meets the memory target (221 MB vs ~910 MB) and it opens in under 0.2 s against ~7 s. Design 1 meets the scaled time target only just and fails memory by 3×, because the viewer must keep the PDF.js document (~780 MB for this plan) open to render tiles. Its quick pass does not help: the cost is the image decode and first draw, not the output size.
+
+**Generation peak > 600 MB — stated and mitigated.** The 1379 MB peak lasts ~40 s, once per plan. Of it, ~950 MB is the PDF.js document itself, the same memory design 1 would hold for the whole viewing session, so it cannot be avoided while PDF.js renders the plan. The ~430 MB in the app process is the in-process WebView GPU (canvas blocks and `toBlob` readbacks), not the IPC: base64 did not change it. Mitigations for Sprint 2:
+- Generate **in the foreground right after import**, with a progress view ("Preparing plan… level n/4"), not silently in the background. Hidden = paused anyway.
+- **Resumable per level**: `manifest.json` is written after each finished level, and a restart continues from the first missing level. A crash or low-memory kill therefore costs at most one level, and the plan opens as soon as the 1024 level exists.
+- **Destroy the loading task as soon as the last level is written** (measured: back to ~165 MB renderer).
+- **base64 transport** for tile writes on Android (write 8.8 s → 2.3 s).
+- Try **1024 px render blocks** instead of 2048 to cut the GPU share in the app process (not measured in the spike). If a low-RAM device still fails, cap the top level at 4096 for that device and let the viewer upscale.
+- On the client's 2024–25 phone (8–12 GB) a one-off ~1.4 GB foreground peak is acceptable; on a 4 GB phone it is a risk. The failure mode is a restart that resumes, not data loss.
+
+**Open item for Step 2.** On a tablet (2560 px wide) the 8192 level is upscaled ~2.5× at 8×. Decide whether to add a 16384 level (≈ 4× the tiles and generation time of the 8192 level) or cap tablet zoom at the level's resolution. The A1 plan's own raster images are only ~6100 px, so the gain is limited to vector lines and text.
+
+**Consequences.**
+- Storage: `projects/<pid>/plans/<plan_id>/tiles/<level>/<x>_<y>.webp` plus `manifest.json` (written last per level). The tiles are a derived cache: no DB column, left out of archives (Sprint 8 regenerates them after import), deleted with the plan, and the startup sweep must keep `plans/<plan_id>/` for live plans (today it warns on any directory there).
+- The viewer needs the asset protocol for `<img>` tiles (D-015).
+- **Sprint 5:** plan crops for the report (zoomed crop with the pin, overview with the red box) are stitched **in Rust from the tiles** with the `image` crate: no WebView, no PDF.js at report time, unit-testable, identical on Windows. A crop 1/8 of the plan wide is ~1000 px from the 8192 level. With design 1, each crop would have re-opened the document (~9 s once plus ~0.5 s per crop on the P30, at ~900 MB).
+- Plan §3 rows "PDF viewing" and "Plan snapshots" (and the §6 A1-lag risk row) are updated once this decision is approved.
+- The spike code (`src/lib/dev/spike14/`, `TileViewer.svelte`, `ViewerSpike.svelte`, `src-tauri/src/spike.rs`, `spikes/pss.sh`) stays behind the Dev screen until the Step 2 viewer replaces it. The spike APKs and `dist/` (they embed the client plan) were deleted after the run.

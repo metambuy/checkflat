@@ -12,6 +12,8 @@
   let plan = $state<PlanKey>("a1");
   let build = $state<Build>("legacy");
   let bench = $state(true);
+  let enc = $state<"image/webp" | "image/jpeg">("image/webp");
+  let transport = $state<"array" | "b64">("array");
   let pauseS = $state(6);
   let view = $state<View>("none");
   let run = $state(0);
@@ -43,11 +45,13 @@
     <select bind:value={plan} disabled={busy}><option value="a1">A1</option><option value="a4">A4 (1A)</option></select>
     <select bind:value={build} disabled={busy}><option value="legacy">legacy</option><option value="modern">modern</option></select>
     <label><input type="checkbox" bind:checked={bench} /> bench</label>
+    <select bind:value={enc} disabled={busy}><option value="image/webp">webp</option><option value="image/jpeg">jpeg</option></select>
+    <select bind:value={transport} disabled={busy}><option value="array">array</option><option value="b64">b64</option></select>
     <label>pause <input type="number" min="0" max="30" bind:value={pauseS} /> s</label>
     <button disabled={busy} onclick={() => job(() => profileRun(build, plan, log, mark))}>Profile</button>
     <button disabled={busy} onclick={() => show("d0")}>D0 4096</button>
     <button disabled={busy} onclick={() => show("d1")}>D1</button>
-    <button disabled={busy} onclick={() => job(() => generatePyramid(build, plan, key, log))}>Gen tiles</button>
+    <button disabled={busy} onclick={() => job(() => generatePyramid(build, plan, key, log, { type: enc, quality: enc === "image/jpeg" ? 0.85 : 0.8, transport }))}>Gen tiles</button>
     <button disabled={busy} onclick={() => show("d2")}>D2</button>
     <button disabled={busy} onclick={() => show("none")}>✕</button>
     <button onclick={() => (lines = [])}>clear</button>

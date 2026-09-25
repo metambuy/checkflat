@@ -11,15 +11,27 @@ export interface PyramidOptions {
   block?: number; // render block, multiple of tile
   type?: "image/webp" | "image/jpeg";
   quality?: number;
+  /** "array": Uint8Array (raw on desktop, JSON number array on Android); "b64": base64 string. */
+  transport?: "array" | "b64";
 }
 
-async function writeFile(path: string, bytes: Uint8Array) {
-  await invoke("spike_write_tile", bytes, { headers: { "x-tile-path": path } });
+async function writeFile(path: string, body: Uint8Array | string) {
+  await invoke("spike_write_tile", body as any, { headers: { "x-tile-path": path } });
+}
+
+/** Base64 via the browser's native encoder (FileReader), not a JS loop. */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).slice(String(r.result).indexOf(",") + 1));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
 }
 
 export async function generatePyramid(build: Build, plan: PlanKey, key: string, log: Log, opts: PyramidOptions = {}): Promise<void> {
-  const { levels = [1024, 2048, 4096, 8192], tile = 512, block = 2048, type = "image/webp", quality = 0.8 } = opts;
-  log(`RUN generate plan=${plan} build=${build} key=${key} levels=${levels.join("/")} tile=${tile} block=${block} ${type} q${quality}`);
+  const { levels = [1024, 2048, 4096, 8192], tile = 512, block = 2048, type = "image/webp", quality = 0.8, transport = "array" } = opts;
+  log(`RUN generate plan=${plan} build=${build} key=${key} levels=${levels.join("/")} tile=${tile} block=${block} ${type} q${quality} ${transport}`);
   const tAll = performance.now();
   await invoke("spike_tiles_clear", { key });
   const lib = await loadPdfjs(build);
@@ -61,12 +73,12 @@ export async function generatePyramid(build: Build, plan: PlanKey, key: string, 
               ext = blob.type === "image/jpeg" ? "jpg" : blob.type === "image/png" ? "png" : ext;
               manifest.ext = ext;
             }
-            const bytes = new Uint8Array(await blob.arrayBuffer());
             encodeMs += performance.now() - t;
             t = performance.now();
-            await writeFile(`${key}/${L}/${tx / tile}_${ty / tile}.${ext}`, bytes);
+            const body = transport === "b64" ? await blobToBase64(blob) : new Uint8Array(await blob.arrayBuffer());
+            await writeFile(`${key}/${L}/${tx / tile}_${ty / tile}.${ext}`, body);
             writeMs += performance.now() - t;
-            levelBytes += bytes.length;
+            levelBytes += blob.size;
           }
         }
         releaseCanvas(canvas);
