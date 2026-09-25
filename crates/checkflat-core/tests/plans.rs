@@ -137,3 +137,16 @@ fn real_example_plans_if_present() {
         assert!(info.width_pt > 100.0 && info.height_pt > 100.0);
     }
 }
+
+#[test]
+fn non_canonical_tokens_are_validation_errors_not_panics() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = db::open(&data.join("checkflat.db")).unwrap().conn;
+    let p = projects::create(&conn, "P", "").unwrap();
+    let id = checkflat_core::ids::new_id();
+    for bad in [format!("urn:uuid:{id}"), format!("{{{id}}}"), id.to_uppercase(), "../x".to_string()] {
+        assert!(matches!(plans::import(&conn, data, &p.id, &bad, "t"), Err(CoreError::Validation(_))), "{bad}");
+        assert!(matches!(plans::discard_staged(data, &bad), Err(CoreError::Validation(_))), "{bad}");
+    }
+}
