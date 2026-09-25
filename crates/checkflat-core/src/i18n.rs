@@ -44,9 +44,40 @@ pub fn t(lang: Lang, key: &str, params: &[(&str, &str)]) -> String {
     let raw = table(lang)
         .get(key)
         .or_else(|| table(Lang::En).get(key))
-        .cloned()
-        .unwrap_or_else(|| key.to_string());
-    params.iter().fold(raw, |acc, (k, v)| acc.replace(&format!("{{{k}}}"), v))
+        .map(String::as_str)
+        .unwrap_or(key);
+    interpolate(raw, params)
+}
+
+/// Single-pass `{name}` substitution: placeholders are resolved against `params` only, so a
+/// value that itself contains `{count}` is never substituted again. Unknown placeholders stay.
+pub fn interpolate(template: &str, params: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        match after.find('}') {
+            Some(end) if after[..end].chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && end > 0 => {
+                let name = &after[..end];
+                match params.iter().find(|(k, _)| *k == name) {
+                    Some((_, v)) => out.push_str(v),
+                    None => {
+                        out.push('{');
+                        out.push_str(name);
+                        out.push('}');
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push('{');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]
@@ -70,6 +101,14 @@ mod tests {
         for (k, v) in &en {
             assert_eq!(placeholders(v), placeholders(&pt[k]), "placeholders differ for {k}");
         }
+    }
+
+    #[test]
+    fn interpolation_is_single_pass() {
+        assert_eq!(interpolate("{name} · {count}", &[("name", "weird {count} name"), ("count", "3")]), "weird {count} name · 3");
+        assert_eq!(interpolate("{missing} stays {x}", &[("x", "1")]), "{missing} stays 1");
+        assert_eq!(interpolate("no placeholders { here", &[]), "no placeholders { here");
+        assert_eq!(interpolate("{}", &[]), "{}");
     }
 
     #[test]

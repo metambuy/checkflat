@@ -12,5 +12,5 @@
     "types": ["vite/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"],
-  "exclude": ["node_modules", "src-tauri", "target"]
+  "exclude": ["node_modules", "src-tauri", "target", "src/**/*.test.ts"]
 }

@@ -3,6 +3,7 @@
 import en from "../../i18n/en.json";
 import pt from "../../i18n/pt.json";
 import { invoke } from "@tauri-apps/api/core";
+import { interpolate, type Params } from "./interpolate";
 
 export type Lang = "en" | "pt";
 const tables: Record<Lang, Record<string, string>> = { en, pt };
@@ -13,10 +14,8 @@ export function lang(): Lang {
   return state.lang;
 }
 
-export function t(key: string, params?: Record<string, string | number>): string {
-  let s = tables[state.lang][key] ?? tables.en[key] ?? key;
-  if (params) for (const [k, v] of Object.entries(params)) s = s.replaceAll(`{${k}}`, String(v));
-  return s;
+export function t(key: string, params?: Params): string {
+  return interpolate(tables[state.lang][key] ?? tables.en[key] ?? key, params);
 }
 
 export async function loadLang(): Promise<void> {
