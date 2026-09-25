@@ -47,7 +47,9 @@ fn inspect_doc(doc: &Document) -> Result<PdfInfo> {
     if rotate == 90 || rotate == 270 {
         std::mem::swap(&mut w, &mut h);
     }
-    Ok(PdfInfo { page_count, width_pt: w, height_pt: h })
+    // MediaBox values are f32 in lopdf; round away float noise (841.8900146 -> 841.89).
+    let round = |v: f64| (v * 1000.0).round() / 1000.0;
+    Ok(PdfInfo { page_count, width_pt: round(w), height_pt: round(h) })
 }
 
 /// Page attribute lookup honouring inheritance through the /Parent chain (MediaBox, Rotate, …).

@@ -4,6 +4,7 @@
 pub mod clock;
 pub mod db;
 pub mod error;
+pub mod i18n;
 pub mod ids;
 pub mod migrations;
 pub mod models;
@@ -12,3 +13,5 @@ pub mod pdf;
 pub mod repo;
 
 pub use error::{CoreError, Result};
+/// Re-exported so the Tauri layer uses the same SQLite build without a second dependency line.
+pub use rusqlite;
