@@ -135,3 +135,10 @@ So **Typst costs ~22–24 MB of APK** on top of the ~11 MB Tauri shell + printpd
 | Typst / printpdf ms | — |
 
 **Recommendation.** Run before Sprint 2 starts (viewer work) at the latest; if first render on the device exceeds ~4 s or PSS at 8× exceeds ~300 MB, lower `MAX_BASE_PX` to 3072 (see D-002).
+
+## D-007 — Sprint 0 code review: applied and deferred items (2026-09-25)
+**Context.** Review of the code that carries into later sprints (CI workflow, camera plugin, capabilities/CSP, release profile, gitignore).
+
+**Applied** (one commit each): capture() rejects a second call while one is pending; a fast Linux `checks` job (svelte-check, `cargo test --workspace --all-features`, `cargo clippy -D warnings`) on push/PR; concurrency group keyed on event name so pushes no longer cancel the manual size job; workflow-level `permissions: contents: read`; SDK platform/build-tools 36 to match `compileSdk`; plugin Gradle stripped to `core-ktx` + `androidx.activity` + Tauri API; `src-tauri/gen/schemas/` untracked and duplicate Android ignore rules removed.
+
+**Deferred to Sprint 3** (tasks added under Sprint 3 in the plan): persistence of the pending capture across process death; a self-contained FileProvider in the plugin; the `assetProtocol` vs base64-over-IPC decision for photo display (the CSP currently allows `asset:` without the protocol being enabled). Reason: all three concern how photos are stored and shown, which is Sprint 3's subject; the spike UI that uses base64 is throwaway.

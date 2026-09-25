@@ -93,6 +93,7 @@ Note: observations belong to the project (not one visit) so they can carry over;
 
 ### M2 — Observations & photos
 - **Sprint 3**: observation sheet (ref, description, photos); image compression.
+  - Camera plugin follow-ups deferred from the Sprint 0 code review (see decisions D-007): (a) persist the pending capture path so a photo survives the app being killed behind the camera; (b) self-contained FileProvider (own subclass, `file_paths.xml` and `<provider>` in the plugin manifest) instead of relying on the Tauri app template; (c) decide `assetProtocol` + `convertFileSrc` vs base64-over-IPC for showing photos, and drop the dead `asset:` CSP entries if base64 stays.
 - **Sprint 4**: photo annotation (ellipse, arrow, freehand); observation list + jump-to-pin.
 - *Exit*: full field workflow offline.
 
