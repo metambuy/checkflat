@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Sprint 0 spikes, reachable only in dev builds (import.meta.env.DEV).
-  import PdfViewer from "./PdfViewer.svelte";
+  // Spikes (Sprint 0 + the D-014 viewer spike): dev builds, or release builds with VITE_SPIKES=1.
+  import ViewerSpike from "./ViewerSpike.svelte";
   import CameraSpike from "./CameraSpike.svelte";
   import ReportSpike from "./ReportSpike.svelte";
   type Tab = "plan" | "camera" | "report";
@@ -14,7 +14,7 @@
     <button class:active={tab === "report"} onclick={() => (tab = "report")}>Report</button>
   </nav>
   <div class="body">
-    {#if tab === "plan"}<PdfViewer />{:else if tab === "camera"}<CameraSpike />{:else}<ReportSpike />{/if}
+    {#if tab === "plan"}<ViewerSpike />{:else if tab === "camera"}<CameraSpike />{:else}<ReportSpike />{/if}
   </div>
 </div>
 

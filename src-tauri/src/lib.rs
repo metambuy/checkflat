@@ -3,6 +3,7 @@
 
 mod commands;
 mod error;
+mod spike;
 mod state;
 
 use base64::Engine as _;
@@ -109,6 +110,10 @@ pub fn run() {
             platform_info,
             generate_report,
             capture_photo,
+            spike::spike_log,
+            spike::spike_write_tile,
+            spike::spike_tiles_info,
+            spike::spike_tiles_clear,
             commands::projects::list_projects,
             commands::projects::get_project,
             commands::projects::create_project,
