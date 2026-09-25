@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use rusqlite::Connection;
+use time::OffsetDateTime;
 use serde::{Deserialize, Serialize};
 
 use crate::{clock, ids, CoreError, Result};
@@ -125,6 +126,11 @@ const TRASH_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 /// (d) quarantine entries older than 7 days. Skipped entirely when the database was created
 /// by this process (`freshly_created`): an empty DB must never wipe user files.
 ///
+/// Every quarantined entry lives under `.trash/<id>-<stamp>/` where `<stamp>` is the time of
+/// quarantine ([`clock::now_compact`]); purge (d) is decided by that stamp, never by mtime
+/// (a `rename` keeps the original mtime, which could be years old), and runs *before* (a)/(b)
+/// so nothing quarantined in this pass can be purged in the same pass.
+///
 /// Containment: only UUID-named entries are considered, symlinks are never followed, and every
 /// touched path must canonicalize inside the canonical data dir.
 pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) -> Result<SweepReport> {
@@ -161,6 +167,11 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
     let projects_root = root.join(PROJECTS_DIR);
     let trash_root = projects_root.join(TRASH_DIR);
     let now = SystemTime::now();
+    let stamp = clock::now_compact();
+
+    // (d) expired quarantine entries — decided by the stamp in the directory name, before any
+    // quarantining in this pass.
+    purge_expired_trash(&trash_root, &root, OffsetDateTime::now_utc(), &mut report);
 
     if let Ok(entries) = std::fs::read_dir(&projects_root) {
         for entry in entries.flatten() {
@@ -175,7 +186,7 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
             }
             let rel_project = format!("{PROJECTS_DIR}/{name}");
             if !live.contains(&name) {
-                let dest = trash_root.join(format!("{name}-{}", clock::now_compact()));
+                let dest = trash_root.join(format!("{name}-{stamp}"));
                 quarantine(&path, &dest, &rel_project, &mut report);
                 continue;
             }
@@ -212,7 +223,9 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
                 if referenced.contains(&key) {
                     continue;
                 }
-                let dest = trash_root.join(&name).join(rel.trim_start_matches(&format!("{rel_project}/")));
+                let dest = trash_root
+                    .join(format!("{name}-{stamp}"))
+                    .join(rel.trim_start_matches(&format!("{rel_project}/")));
                 quarantine(&file, &dest, &rel, &mut report);
             }
         }
@@ -231,21 +244,6 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
             }
         }
     }
-    // (d) expired quarantine entries
-    if let Ok(entries) = std::fs::read_dir(&trash_root) {
-        for f in entries.flatten() {
-            let p = f.path();
-            let rel = format!("{PROJECTS_DIR}/{TRASH_DIR}/{}", f.file_name().to_string_lossy());
-            if !contained(&p, &root) || is_symlink(&p) || !older_than(&p, now, TRASH_MAX_AGE) {
-                continue;
-            }
-            let res = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
-            match res {
-                Ok(()) => report.removed.push(rel),
-                Err(e) => report.warnings.push(format!("could not remove {rel}: {e}")),
-            }
-        }
-    }
     log::info!(
         "sweep: {} quarantined, {} removed, {} warnings",
         report.quarantined.len(),
@@ -253,6 +251,40 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
         report.warnings.len()
     );
     Ok(report)
+}
+
+/// Stamp of a quarantine entry name `<uuid>-<stamp>`, if well-formed.
+pub fn trash_entry_time(name: &str) -> Option<OffsetDateTime> {
+    let (id, stamp) = name.rsplit_once('-')?;
+    if !ids::is_id(id) {
+        return None;
+    }
+    clock::parse_compact(stamp)
+}
+
+fn purge_expired_trash(trash_root: &Path, root: &Path, now: OffsetDateTime, report: &mut SweepReport) {
+    let Ok(entries) = std::fs::read_dir(trash_root) else { return };
+    let max_age = time::Duration::seconds(TRASH_MAX_AGE.as_secs() as i64);
+    for f in entries.flatten() {
+        let p = f.path();
+        let name = f.file_name().to_string_lossy().into_owned();
+        let rel = format!("{PROJECTS_DIR}/{TRASH_DIR}/{name}");
+        if !contained(&p, root) || is_symlink(&p) {
+            continue;
+        }
+        let Some(at) = trash_entry_time(&name) else {
+            report.warnings.push(format!("unrecognized quarantine entry left alone: {rel}"));
+            continue;
+        };
+        if now - at <= max_age {
+            continue;
+        }
+        let res = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+        match res {
+            Ok(()) => report.removed.push(rel),
+            Err(e) => report.warnings.push(format!("could not remove {rel}: {e}")),
+        }
+    }
 }
 
 fn quarantine(from: &Path, dest: &Path, rel: &str, report: &mut SweepReport) {

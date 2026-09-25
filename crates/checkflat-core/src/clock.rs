@@ -19,9 +19,21 @@ pub fn format_iso(t: OffsetDateTime) -> String {
         .expect("fixed format cannot fail")
 }
 
+const COMPACT: &[BorrowedFormatItem<'_>] =
+    format_description!("[year][month][day]T[hour][minute][second][subsecond digits:3]Z");
+
 /// Filesystem-safe variant of [`now_iso`] (no `:` or `.`), e.g. `20260925T100312345Z`.
 pub fn now_compact() -> String {
-    now_iso().chars().filter(|c| !matches!(c, ':' | '-' | '.')).collect()
+    format_compact(OffsetDateTime::now_utc())
+}
+
+pub fn format_compact(t: OffsetDateTime) -> String {
+    t.to_offset(UtcOffset::UTC).format(COMPACT).expect("fixed format cannot fail")
+}
+
+/// Parse a [`now_compact`] stamp (`20260925T100312345Z`).
+pub fn parse_compact(s: &str) -> Option<OffsetDateTime> {
+    time::PrimitiveDateTime::parse(s, COMPACT).ok().map(|p| p.assume_utc())
 }
 
 pub fn parse_iso(s: &str) -> Option<OffsetDateTime> {
@@ -50,6 +62,15 @@ mod tests {
         // Sub-millisecond precision is truncated, never rounded up into the next second.
         let t9 = parse_iso("2026-09-25T10:44:04.999999Z").unwrap();
         assert_eq!(format_iso(t9), "2026-09-25T10:44:04.999Z");
+    }
+
+    #[test]
+    fn compact_round_trip() {
+        let t = parse_iso("2026-09-25T10:03:12.345Z").unwrap();
+        assert_eq!(format_compact(t), "20260925T100312345Z");
+        assert_eq!(parse_compact("20260925T100312345Z"), Some(t));
+        assert_eq!(parse_compact("not-a-stamp"), None);
+        assert_eq!(now_compact().len(), 19);
     }
 
     #[test]
