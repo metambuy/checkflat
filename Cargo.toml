@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["src-tauri", "src-tauri/plugins/camera-capture", "spikes/report-spike"]
+members = ["crates/checkflat-core", "src-tauri", "src-tauri/plugins/camera-capture", "spikes/report-spike"]
 
 [profile.release]
 codegen-units = 1
