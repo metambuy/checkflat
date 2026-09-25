@@ -8,6 +8,7 @@ pub mod ids;
 pub mod migrations;
 pub mod models;
 pub mod paths;
+pub mod pdf;
 pub mod repo;
 
 pub use error::{CoreError, Result};

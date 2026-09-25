@@ -16,6 +16,12 @@ pub enum CoreError {
     NotFound,
     #[error("validation failed: {0}")]
     Validation(String),
+    #[error("PDF has {pages} pages; one plan per file is required")]
+    MultiPage { pages: usize },
+    #[error("file is not a readable PDF: {0}")]
+    Unreadable(String),
+    #[error("plan has {count} observation(s); delete or move them first")]
+    PlanHasObservations { count: i64 },
 }
 
 impl CoreError {
@@ -28,6 +34,9 @@ impl CoreError {
             CoreError::InvalidPath(_) => "invalid_path",
             CoreError::NotFound => "not_found",
             CoreError::Validation(_) => "validation",
+            CoreError::MultiPage { .. } => "multi_page",
+            CoreError::Unreadable(_) => "unreadable_pdf",
+            CoreError::PlanHasObservations { .. } => "plan_has_observations",
         }
     }
 }
