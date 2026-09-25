@@ -28,6 +28,12 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun capture(invoke: Invoke) {
+        // Tauri's PluginManager keeps a single activity-result callback; a second capture while the
+        // camera is open would orphan the first Invoke (its promise would never settle).
+        if (pendingFile != null) {
+            invoke.reject("capture already in progress")
+            return
+        }
         val dir = File(activity.cacheDir, "captures").apply { mkdirs() }
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val file = File(dir, "IMG_$stamp.jpg")
