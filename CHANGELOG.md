@@ -7,6 +7,7 @@
 - Tauri: single-connection `AppState`, async commands via `spawn_blocking`, dialog + fs plugins, `displayName` command in the Kotlin plugin for Android picker names.
 - UI: projects list/detail, plan import dialog with editable title, confirm dialogs, EN/PT switch persisted in `setting`; Sprint 0 spikes moved behind a dev-only screen.
 - 29 core unit/integration tests, run by the CI `checks` job.
+- Post-review fixes (ultrareview, 2026-09-25): fixed-width timestamps; quarantine entries under `<id>-<stamp>` dirs purged by stamp (never mtime) with purge before quarantine; fresh-DB detection from `user_version`; strict canonical UUID ids; single-pass `{placeholder}` interpolation in TS and Rust; translated default plan title; shared modal CSS. Frontend unit tests via `node --test` (`pnpm test`) added to the CI checks job.
 
 ## Sprint 0 — 2026-09-24 (foundations & risk spikes)
 - Tauri v2 + Svelte 5/TypeScript scaffold; Android project generated; Cargo workspace with `src-tauri` and `spikes/report-spike`.
