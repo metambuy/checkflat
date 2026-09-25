@@ -95,3 +95,22 @@ fn in_memory_db_has_schema() {
     let conn = db::open_in_memory().unwrap();
     assert_eq!(table_names(&conn).len(), 6);
 }
+
+#[test]
+fn zero_byte_or_schemaless_db_counts_as_fresh_and_skips_the_sweep() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("checkflat.db");
+    std::fs::write(&path, b"").unwrap();
+    let dead = dir.path().join(format!("projects/{}/plans/x.pdf", checkflat_core::ids::new_id()));
+    std::fs::create_dir_all(dead.parent().unwrap()).unwrap();
+    std::fs::write(&dead, b"%PDF").unwrap();
+
+    let opened = db::open(&path).unwrap();
+    assert!(opened.freshly_created, "an existing but empty file is a fresh database");
+    let report = checkflat_core::paths::sweep_orphans(&opened.conn, dir.path(), opened.freshly_created).unwrap();
+    assert!(report.skipped_fresh_db);
+    assert!(dead.exists());
+    // Once migrated, reopening is not fresh anymore.
+    drop(opened);
+    assert!(!db::open(&path).unwrap().freshly_created);
+}

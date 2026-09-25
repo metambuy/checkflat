@@ -6,7 +6,8 @@ use rusqlite::Connection;
 
 use crate::{migrations, Result};
 
-/// An opened, migrated connection plus whether the database file was created by this call.
+/// An opened, migrated connection plus whether the database had no schema before this call
+/// (`PRAGMA user_version == 0`, whether the file was missing, zero-byte or schema-less).
 /// `freshly_created` gates destructive maintenance (the orphan sweep) so that an empty
 /// database resulting from a lost or replaced file can never wipe user files.
 pub struct Opened {
@@ -15,11 +16,11 @@ pub struct Opened {
 }
 
 pub fn open(path: &Path) -> Result<Opened> {
-    let existed = path.exists();
     let mut conn = Connection::open(path)?;
     configure(&conn)?;
+    let version_before = migrations::current_version(&conn)?;
     migrations::apply(&mut conn, Some(path))?;
-    Ok(Opened { conn, freshly_created: !existed })
+    Ok(Opened { conn, freshly_created: version_before == 0 })
 }
 
 /// In-memory database with the same configuration and schema (tests).
