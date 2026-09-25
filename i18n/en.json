@@ -24,6 +24,7 @@
   "project.import_plan": "Import plan",
   "project.address_placeholder": "Site address",
   "plan.title": "Title",
+  "plan.default_title": "Plan",
   "plan.size": "{width} × {height} mm",
   "plan.delete_confirm": "Delete plan \"{title}\"?",
   "plan.delete_blocked": "This plan has {count} observation(s). Delete or move them first.",

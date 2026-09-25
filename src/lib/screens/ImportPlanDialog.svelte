@@ -27,7 +27,7 @@
     phase = "inspecting";
     try {
       staged = await api.stagePlanSource(source);
-      title = staged.defaultTitle;
+      title = staged.defaultTitle ?? t("plan.default_title");
       phase = "title";
     } catch (e) {
       console.error("[import] stage failed", e);

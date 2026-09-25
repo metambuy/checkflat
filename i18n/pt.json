@@ -24,6 +24,7 @@
   "project.import_plan": "Importar planta",
   "project.address_placeholder": "Morada da obra",
   "plan.title": "Título",
+  "plan.default_title": "Planta",
   "plan.size": "{width} × {height} mm",
   "plan.delete_confirm": "Eliminar a planta \"{title}\"?",
   "plan.delete_blocked": "Esta planta tem {count} observação(ões). Elimine-as ou mova-as primeiro.",

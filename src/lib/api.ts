@@ -41,7 +41,8 @@ export interface PdfInfo {
 export interface StagedPlan {
   token: string;
   displayName: string | null;
-  defaultTitle: string;
+  /** null when the source has no usable name; use t("plan.default_title") */
+  defaultTitle: string | null;
   info: PdfInfo;
 }
 

@@ -112,6 +112,12 @@ mod tests {
     }
 
     #[test]
+    fn default_plan_title_is_translated() {
+        assert_eq!(t(Lang::En, "plan.default_title", &[]), "Plan");
+        assert_eq!(t(Lang::Pt, "plan.default_title", &[]), "Planta");
+    }
+
+    #[test]
     fn translate_with_params_and_fallbacks() {
         assert_eq!(t(Lang::Pt, "import.multi_page", &[("pages", "3")]), "Este PDF tem 3 páginas. O Checkflat precisa de uma planta por ficheiro.");
         assert_eq!(t(Lang::En, "nope.missing", &[]), "nope.missing");

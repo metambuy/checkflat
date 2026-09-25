@@ -17,7 +17,9 @@ use crate::state::{run_db, run_fs};
 pub struct StagedPlan {
     pub token: String,
     pub display_name: Option<String>,
-    pub default_title: String,
+    /// Derived from the display name; `None` when there is none — the UI then uses the
+    /// translated `plan.default_title`.
+    pub default_title: Option<String>,
     pub info: PdfInfo,
 }
 
@@ -59,11 +61,7 @@ pub async fn stage_plan_source(app: AppHandle, source: String) -> AppResult<Stag
         .open(path, opts)
         .map_err(|e| AppError::new("source_unreadable", e.to_string()))?;
     let staged = run_fs(app, move |dir| plans::stage(dir, file)).await?;
-    let default_title = display_name
-        .as_deref()
-        .map(plans::default_title)
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(|| "Plan".to_string());
+    let default_title = display_name.as_deref().map(plans::default_title).filter(|t| !t.is_empty());
     Ok(StagedPlan { token: staged.token, display_name, default_title, info: staged.info })
 }
 
