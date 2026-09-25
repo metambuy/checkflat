@@ -42,9 +42,14 @@ Format: one entry per decision — Context / Options / Outcome / Recommendation.
 
 - The tile is DPR-capped at 2, so the phone renders 824×1586 tiles instead of 1080×2080; text at 8× is crisp on both.
 - Memory headroom is fine: the base canvas (45 MB) is the dominant cost and fixed; tiles are screen-sized (≤ 15 MB).
-- Not measured on hardware yet — see D-006.
+- **Revised after the device check (D-006, 2026-09-25).** On a Huawei P30 Pro (Android 10, WebView 150) the 4096 px base took **17 s** to render and the WebView renderer held **~784 MB** at 8× (app process 128 MB). Both are far over the ~4 s / ~300 MB limits, so the emulator numbers above are not representative, and the emulators' renderer memory was never measured.
 
-**Recommendation.** Keep option 2 as the Sprint 2 viewer design: `MAX_BASE_PX = 4096`, DPR cap 2, viewport tile above base resolution, PDF.js legacy build. Revisit only if a real low-end phone shows the 2.4 s first render or the 45 MB base as a problem (then drop the cap to 3072 or render the base progressively). Pinch-zoom gesture code (`src/lib/gestures.ts`) exists but was exercised with wheel/mouse on desktop and with the on-screen zoom buttons on the emulators; adb cannot synthesise two-finger gestures, so real pinch is part of the D-006 device check.
+**Recommendation (revised 2026-09-25 after D-006).** Keep option 2's structure (a single base canvas, pan/zoom by CSS transform, a viewport tile after the gesture settles, the PDF.js legacy build), but change the base rendering for Sprint 2:
+- **Render the base progressively:** first a quick low-resolution pass (about 1024 px on the long side, roughly 1/16 of the pixels) so the plan appears within the ~4 s limit, then the full base in the background, swapped in when done.
+- **Lower `MAX_BASE_PX` to 3072** (0.56× the pixels of 4096: base ~25 MB instead of 45 MB). This alone will not get 17 s under 4 s, hence the progressive pass.
+- **Release the canvases you're done with** (set width/height to 0) when a tile or base is replaced, and measure the **renderer** process at 8× on the device, not just `com.checkflat.app`.
+- Re-measure on the P30 Pro with a release build before closing Sprint 2. If total PSS at 8× is still over ~300 MB, drop the tile's DPR cap to 1.5 and investigate the renderer's 724 MB "Unknown" (software-drawn canvas vs PDF.js image cache).
+Pinch-zoom (`src/lib/dev/gestures.ts`) works with a real two-finger pinch on the device. The flashing when panning at max zoom is Sprint 2 viewer work.
 
 ## D-003 — Spike B: camera capture on Android (2026-09-24)
 **Context.** Risk "Camera capture in Android WebView" (plan §6). Photos are the core of every observation.
@@ -118,23 +123,32 @@ So **Typst costs ~22–24 MB of APK** on top of the ~11 MB Tauri shell + printpd
 
 **Status (2026-09-24).** The first runs were refused by GitHub ("recent account payments have failed or your spending limit needs to be increased" — Actions minutes on a private repo are billed). After the repo was made public, run 36032448873 was **green on both jobs**: Android 19 min (debug APK + three release variants), Windows 19.5 min (tests + NSIS installer, artifact `windows-nsis` 11 MB zipped). The three release size builds were then moved into a separate `android-size` job that runs only on `workflow_dispatch`, so push/PR runs build just the debug APK and the NSIS installer.
 
-## D-006 — Sprint 0 exit check on a real Android phone (pending)
+## D-006 — Sprint 0 exit check on a real Android phone (2026-09-25)
 **Context.** All Spike A/B measurements above come from emulators on an M4 Pro host. The sprint exit criterion is "APK opens a plan, takes a photo, outputs a PDF" on hardware.
 
-**Procedure.** Build a debug APK locally with the A1 plan bundled (`scripts/copy-spike-plan.sh && pnpm tauri android build --debug --apk --target aarch64`; the CI APK has no plan because client PDFs are never committed), `adb install` it, then: Plan tab → wait for first render → pinch to 8× → pan; Camera tab → "Take photo (native plugin)" → confirm → photo shown; Report tab → generate with both engines. Record `adb shell dumpsys meminfo com.checkflat.app` at 8×.
+**Procedure.** The spikes live on the Dev screen, which exists only in dev builds (`import.meta.env.DEV`), so a release or CI APK cannot run them.
+1. `scripts/copy-spike-plan.sh` (the A1 plan goes to `public/spike/`, served by Vite; client PDFs are never committed).
+2. `pnpm tauri android dev --features report-typst,report-printpdf` with the phone on USB and no emulator running (the CLI picks the connected device). **The `--features` flag is required:** `tauri android dev` ignores `build.features` in `tauri.conf.json`, and without it both report buttons fail with `engine … not compiled in`.
+3. The phone loads the frontend from the Mac's LAN address (`http://<mac-ip>:1420`, chosen by the CLI), so it must be on the same Wi-Fi.
+4. In the app: **Dev** → Plan → wait for `ready · first render … ms` (read the `fetched` and `base render` lines too) → pinch to 8× → pan; Camera → "Take photo (native plugin)" → confirm; Report → both engines.
+5. At 8× record **both** processes: `adb shell dumpsys meminfo com.checkflat.app` **and** the app's WebView renderer (`dumpsys meminfo <pid>`, where the pid is the `sandboxed_process` whose `dumpsys activity processes` record ends in `/u0a<app uid>i<n>`). The page is drawn in the renderer, and the app-process figure alone misses it.
+6. Huawei/EMUI does not pass app or WebView console output to `adb logcat` by default, so read the timings from the screen.
 
-**Outcome.** _Pending — no Android device available on 2026-09-24._
+**Outcome.** Dev build: Rust unoptimized, PDF.js served unbundled by Vite. Treat the ms as upper bounds.
 
 | item | result |
 |---|---|
-| device model / Android / WebView | — |
-| first render (ms) | — |
-| pinch-zoom to 8×, pan | — |
-| PSS at 8× (MB) | — |
-| camera → photo shown | — |
-| Typst / printpdf ms | — |
+| device model / Android / WebView | Huawei P30 Pro (VOG-L29, EMUI `10.1.0.150`, 8 GB RAM, arm64-v8a) / Android 10 (API 29) / Android System WebView **150.0.7871.181** |
+| first render (ms) | **17,919** (fetch 2.8 MB 210 ms, base render 4096×2893 = 45.2 MB RGBA **17,053 ms**, JS heap 42.6 MB); an earlier run on the same device: 9,598 |
+| pinch-zoom to 8×, pan | works (real two-finger pinch); at max zoom panning **flashes and lags** |
+| PSS at 8× (MB) | app process **127.6** (Native 43.1, GL 12.3); WebView renderer **783.6** (724 "Unknown"); **total ≈ 911**. An earlier run read app 125 + renderer 66, probably before the 8× tile existed |
+| camera → photo shown | works |
+| Typst / printpdf ms | **426 / 911** (debug; emulator debug was 289 / 414) |
 
-**Recommendation.** Run before Sprint 2 starts (viewer work) at the latest; if first render on the device exceeds ~4 s or PSS at 8× exceeds ~300 MB, lower `MAX_BASE_PX` to 3072 (see D-002).
+- The app process's own memory is similar to the emulator (127 vs 146–201 MB). The WebView renderer is the problem: D-002 never measured it, so the emulator runs may have used just as much. The large "Unknown" region fits the canvas being drawn in software inside the renderer (not on the GPU), and it may also explain the flashing.
+- Other observations: USB dropped twice mid-session (cable or port); the Sprint 1 address field saves on blur with no visible Save button or confirmation. That works, but users can't tell it saved.
+
+**Recommendation.** The sprint exit criterion (plan, photo, PDF) is **met on hardware**, and Typst stays the report engine (D-004). The viewer fails both limits (first render > 4 s, total PSS > 300 MB), so D-002 is revised. Before Sprint 2 decisions are final, re-measure first render with a bundled frontend, to separate PDF.js speed from the dev-server overhead. Any `tauri android build` runs `vite build`, which hides the Dev screen, so this needs a temporary switch (e.g. a `VITE_SPIKES` env flag next to `import.meta.env.DEV`) or the Sprint 2 viewer itself.
 
 ## D-007 — Sprint 0 code review: applied and deferred items (2026-09-25)
 **Context.** Review of the code that carries into later sprints (CI workflow, camera plugin, capabilities/CSP, release profile, gitignore).
