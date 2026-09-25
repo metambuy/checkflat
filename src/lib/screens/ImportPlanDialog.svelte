@@ -1,5 +1,6 @@
 <script lang="ts">
   // pick file -> stage_plan_source (reads once, inspects, proposes a title) -> editable title -> import_plan
+  import { onMount } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { api, asAppError, ptToMm, type AppError, type Plan, type StagedPlan } from "../api";
   import { t } from "../i18n.svelte";
@@ -29,6 +30,7 @@
       title = staged.defaultTitle;
       phase = "title";
     } catch (e) {
+      console.error("[import] stage failed", e);
       error = asAppError(e);
       phase = "picking";
     }
@@ -51,7 +53,8 @@
     onclose();
   }
 
-  $effect(() => { void pick(); });
+  // Start the picker once; a $effect here would re-run on every state change inside pick().
+  onMount(() => { void pick(); });
 </script>
 
 <div class="backdrop" role="presentation">
