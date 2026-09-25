@@ -39,6 +39,9 @@ scripts/copy-spike-plan.sh            # Examples/c-JS00-AM01.pdf -> public/spike
 ```
 Without it the Plan tab shows "no spike plan bundled". CI builds without it.
 
+## Data directory
+Tauri app data dir (`com.checkflat.app`): `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>` before migrations), `projects/<project_id>/plans/<plan_id>.pdf`, `projects/.trash/` (quarantine, purged after 7 days), `tmp/` (import staging). All DB paths are relative to this dir. macOS dev: `~/Library/Application Support/com.checkflat.app`.
+
 ## Commands
 ```sh
 pnpm install                  # also copies PDF.js cmaps/standard_fonts/wasm/iccs into public/pdfjs/

@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 1 — 2026-09-25 (schema, projects, plan import, i18n)
+- New crate `crates/checkflat-core` (no Tauri dependency): rusqlite (bundled) with FK/WAL/busy_timeout, rusqlite_migration on `user_version`, migration 1 with all v1 tables, backup via `VACUUM INTO` before migrating, UUID v7 ids, RFC 3339 timestamps.
+- Relative-path policy (`RelPath`), project/plan file layout, startup quarantine sweep with fresh-DB guard and containment rules.
+- Projects CRUD, settings, staged plan import (read once → inspect with lopdf → rename → insert), multi-page rejection, plan delete blocked while observations exist.
+- Tauri: single-connection `AppState`, async commands via `spawn_blocking`, dialog + fs plugins, `displayName` command in the Kotlin plugin for Android picker names.
+- UI: projects list/detail, plan import dialog with editable title, confirm dialogs, EN/PT switch persisted in `setting`; Sprint 0 spikes moved behind a dev-only screen.
+- 29 core unit/integration tests, run by the CI `checks` job.
+
 ## Sprint 0 — 2026-09-24 (foundations & risk spikes)
 - Tauri v2 + Svelte 5/TypeScript scaffold; Android project generated; Cargo workspace with `src-tauri` and `spikes/report-spike`.
 - GitHub Actions: Android debug APK (three variants for engine size comparison) and Windows NSIS installer.

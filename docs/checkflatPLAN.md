@@ -87,7 +87,7 @@ Note: observations belong to the project (not one visit) so they can carry over;
 - *Exit*: APK opens a plan, takes a photo, outputs a PDF.
 
 ### M1 — Plans & pins
-- **Sprint 1**: SQLite schema + migrations; projects CRUD; plan import; EN/PT i18n setup.
+- **Sprint 1** ✅ (2026-09-25): SQLite schema + migrations; projects CRUD; plan import; EN/PT i18n setup. Decisions D-008…D-013.
 - **Sprint 2**: plan viewer (pan/zoom); tap/drag pins; responsive layout phone/tablet/desktop.
 - *Exit*: pins persist after restart, on phone and tablet.
 
