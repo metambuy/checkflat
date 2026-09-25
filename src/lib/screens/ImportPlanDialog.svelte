@@ -80,7 +80,5 @@
 </div>
 
 <style>
-  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
-  .dialog { background: #fff; border-radius: 10px; padding: 1rem; width: min(100%, 460px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
   h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
 </style>

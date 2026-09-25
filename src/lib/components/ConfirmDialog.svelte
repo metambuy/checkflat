@@ -24,9 +24,6 @@
 {/if}
 
 <style>
-  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
-  .dialog { background: #fff; border-radius: 10px; padding: 1rem; width: min(100%, 420px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
-  .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
-  button { min-height: 44px; }
+  .actions { margin-top: 1rem; }
   .danger { background: #b3261e; color: #fff; border-color: #b3261e; }
 </style>
