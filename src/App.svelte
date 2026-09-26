@@ -8,8 +8,9 @@
   import ProjectsScreen from "./lib/screens/ProjectsScreen.svelte";
   import ProjectScreen from "./lib/screens/ProjectScreen.svelte";
   import PlanScreen from "./lib/screens/PlanScreen.svelte";
-  import { SPIKES } from "./lib/devlog";
-  // Dev screen only in spike builds; a normal release bundle drops the chunk.
+  // Dev screen only in spike builds (see lib/devlog.ts). Kept inline so the bundler folds it and a
+  // normal release bundle drops the Dev chunk (an imported constant is not folded).
+  const SPIKES = import.meta.env.DEV || import.meta.env.VITE_SPIKES === "1";
   const devScreen = SPIKES ? import("./lib/dev/DevScreen.svelte") : null;
 
   let ready = $state(false);

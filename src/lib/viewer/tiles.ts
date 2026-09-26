@@ -2,12 +2,16 @@
 // levels; the viewer then shows images only. Resumable per level: the manifest is rewritten after
 // each finished level, and a restart continues with the first missing one.
 import { convertFileSrc } from "@tauri-apps/api/core";
-// Legacy build: no measurable gain from the modern one, and it also runs on WebView < 126 (D-014).
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { api, type Plan, type TileInfo, type TileManifest } from "../api";
 import { TILES } from "./config";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
+/** PDF.js is loaded only when tiles must be generated; viewing never loads it (D-014). Legacy
+ * build: no measurable gain from the modern one, and it also runs on WebView < 126. */
+async function loadPdfjs() {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
+  return pdfjs;
+}
 
 export interface Progress {
   done: number;
@@ -55,6 +59,7 @@ export async function ensureTiles(plan: Plan, info: TileInfo, opts: GenerateOpti
     manifest = { version: TILES.version, tile: TILES.tile, widthPt: plan.widthPt, heightPt: plan.heightPt, levels: [] };
   }
 
+  const pdfjs = await loadPdfjs();
   const res = await fetch(convertFileSrc(info.pdf));
   if (!res.ok) throw new Error(`plan file unreadable (${res.status})`);
   const task = pdfjs.getDocument({
