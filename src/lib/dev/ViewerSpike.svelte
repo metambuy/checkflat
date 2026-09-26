@@ -13,7 +13,11 @@
   let build = $state<Build>("legacy");
   let bench = $state(true);
   let enc = $state<"image/webp" | "image/jpeg">("image/webp");
-  let transport = $state<"array" | "b64">("array");
+  let transport = $state<"array" | "b64">("b64");
+  let quality = $state("0.8"); // WebP quality; "1" = lossless in Chromium
+  const FOCI = { centre: { x: 0.5, y: 0.5 }, legend: { x: 0.9, y: 0.21 } };
+  let focusName = $state<keyof typeof FOCI>("centre");
+  const focus = $derived(FOCI[focusName]);
   let pauseS = $state(6);
   let view = $state<View>("none");
   let run = $state(0);
@@ -21,7 +25,7 @@
   let lines = $state<string[]>([]);
   const log = makeLogger((l) => (lines = [...lines.slice(-30), l.slice(11, 23) + l.slice(24)]));
   const mark = makeMark(log, () => pauseS * 1000);
-  const key = $derived(`${plan}-${build}`);
+  const key = $derived(`${plan}-${build}-q${Math.round(Number(quality) * 100)}`);
 
   function show(v: View) {
     view = v;
@@ -47,20 +51,22 @@
     <label><input type="checkbox" bind:checked={bench} /> bench</label>
     <select bind:value={enc} disabled={busy}><option value="image/webp">webp</option><option value="image/jpeg">jpeg</option></select>
     <select bind:value={transport} disabled={busy}><option value="array">array</option><option value="b64">b64</option></select>
+    <select bind:value={quality} disabled={busy}><option value="0.8">q80</option><option value="0.92">q92</option><option value="1">lossless</option></select>
+    <select bind:value={focusName} disabled={busy}><option value="centre">centre</option><option value="legend">legend</option></select>
     <label>pause <input type="number" min="0" max="30" bind:value={pauseS} /> s</label>
     <button disabled={busy} onclick={() => job(() => profileRun(build, plan, log, mark))}>Profile</button>
     <button disabled={busy} onclick={() => show("d0")}>D0 4096</button>
     <button disabled={busy} onclick={() => show("d1")}>D1</button>
-    <button disabled={busy} onclick={() => job(() => generatePyramid(build, plan, key, log, { type: enc, quality: enc === "image/jpeg" ? 0.85 : 0.8, transport }))}>Gen tiles</button>
+    <button disabled={busy} onclick={() => job(() => generatePyramid(build, plan, key, log, { type: enc, quality: enc === "image/jpeg" ? 0.85 : Number(quality), transport }))}>Gen tiles</button>
     <button disabled={busy} onclick={() => show("d2")}>D2</button>
     <button disabled={busy} onclick={() => show("none")}>✕</button>
     <button onclick={() => (lines = [])}>clear</button>
   </div>
   <div class="stage">
     {#key run}
-      {#if view === "d0"}<PdfViewer {build} {plan} maxBase={4096} quickPx={0} {bench} {log} {mark} />
-      {:else if view === "d1"}<PdfViewer {build} {plan} maxBase={3072} quickPx={1024} {bench} {log} {mark} />
-      {:else if view === "d2"}<TileViewer tilesKey={key} {bench} {log} {mark} />{/if}
+      {#if view === "d0"}<PdfViewer {build} {plan} maxBase={4096} quickPx={0} {bench} {focus} {log} {mark} />
+      {:else if view === "d1"}<PdfViewer {build} {plan} maxBase={3072} quickPx={1024} {bench} {focus} {log} {mark} />
+      {:else if view === "d2"}<TileViewer tilesKey={key} {bench} {focus} {log} {mark} />{/if}
     {/key}
     <pre class="hud">{lines.join("\n")}</pre>
   </div>

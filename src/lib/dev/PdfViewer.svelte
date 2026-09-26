@@ -14,9 +14,10 @@
     maxBase = 3072,
     quickPx = 1024,
     bench = false,
+    focus = { x: 0.5, y: 0.5 },
     log,
     mark,
-  }: { build?: Build; plan?: PlanKey; maxBase?: number; quickPx?: number; bench?: boolean; log: Log; mark: Mark } = $props();
+  }: { build?: Build; plan?: PlanKey; maxBase?: number; quickPx?: number; bench?: boolean; focus?: { x: number; y: number }; log: Log; mark: Mark } = $props();
 
   const MAX_ZOOM = 8; // relative to fit
   const DPR = dpr();
@@ -120,9 +121,11 @@
     }
   }
 
+  /** Zoom to z× fit with the focus point (0–1 page coordinates) at the centre of the view. */
   function zoomTo(z: number): Promise<void> {
     const cw = container.clientWidth, ch = container.clientHeight;
-    t = zoomAt(t, (fitScale * z) / t.scale, cw / 2, ch / 2, fitScale * 0.5, fitScale * MAX_ZOOM);
+    const scale = Math.min(Math.max(fitScale * z, fitScale * 0.5), fitScale * MAX_ZOOM);
+    t = { scale, x: cw / 2 - focus.x * world.offsetWidth * scale, y: ch / 2 - focus.y * world.offsetHeight * scale };
     return renderTile();
   }
 

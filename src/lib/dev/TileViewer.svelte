@@ -4,12 +4,12 @@
   // matching the zoom is chosen when a gesture settles, and only its visible tiles are in the DOM.
   import { onMount, tick } from "svelte";
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-  import { attachGestures, zoomAt, type Transform } from "./gestures";
+  import { attachGestures, type Transform } from "./gestures";
   import { runBench } from "./spike14/bench";
   import { dpr, mb, ms, type Log, type Mark } from "./spike14/pdf";
   import type { Level, Manifest } from "./spike14/tiles";
 
-  let { tilesKey, bench = false, log, mark }: { tilesKey: string; bench?: boolean; log: Log; mark: Mark } = $props();
+  let { tilesKey, bench = false, focus = { x: 0.5, y: 0.5 }, log, mark }: { tilesKey: string; bench?: boolean; focus?: { x: number; y: number }; log: Log; mark: Mark } = $props();
 
   const MAX_ZOOM = 8;
   const DPR = dpr();
@@ -74,8 +74,11 @@
     await Promise.all(imgs.map((i) => i.decode().catch(() => {})));
   }
 
+  /** Zoom to z× fit with the focus point (0–1 page coordinates) at the centre of the view. */
   function zoomTo(z: number): Promise<void> {
-    t = zoomAt(t, (fitScale * z) / t.scale, cw / 2, ch / 2, fitScale * 0.5, fitScale * MAX_ZOOM);
+    const T = top();
+    const scale = Math.min(Math.max(fitScale * z, fitScale * 0.5), fitScale * MAX_ZOOM);
+    t = { scale, x: cw / 2 - focus.x * T.W * scale, y: ch / 2 - focus.y * T.H * scale };
     return settle();
   }
 
