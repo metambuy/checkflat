@@ -8,9 +8,8 @@
   import ProjectsScreen from "./lib/screens/ProjectsScreen.svelte";
   import ProjectScreen from "./lib/screens/ProjectScreen.svelte";
   import PlanScreen from "./lib/screens/PlanScreen.svelte";
-  // Spikes (Dev screen): dev builds, or a release build made with VITE_SPIKES=1 (D-006/D-014 device
-  // measurements). Both are replaced at build time, so a normal release bundle drops the Dev chunk.
-  const SPIKES = import.meta.env.DEV || import.meta.env.VITE_SPIKES === "1";
+  import { SPIKES } from "./lib/devlog";
+  // Dev screen only in spike builds; a normal release bundle drops the chunk.
   const devScreen = SPIKES ? import("./lib/dev/DevScreen.svelte") : null;
 
   let ready = $state(false);

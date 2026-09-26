@@ -12,6 +12,7 @@
   import { cancel, confirm, noDraft, place, type DraftState } from "../viewer/draft";
   import { ensureTiles, isComplete, type Progress } from "../viewer/tiles";
   import type { Point } from "../viewer/coords";
+  import { devlog } from "../devlog";
 
   let { projectId, planId }: { projectId: string; planId: string } = $props();
 
@@ -27,6 +28,7 @@
   let toDelete = $state<Observation | null>(null);
   let viewer = $state<PlanViewer | null>(null);
   let leaving = false;
+  const opened = performance.now();
 
   const selected = $derived(pins.find((p) => p.id === selectedId) ?? null);
   const percent = $derived(progress && progress.total ? Math.floor((progress.done / progress.total) * 100) : 0);
@@ -35,14 +37,20 @@
   async function prepare() {
     if (!plan || !info) return;
     genFailed = false;
+    const t0 = performance.now();
+    devlog(`tiles: start (levels on disk: ${info.manifest?.levels.map((l) => l.size).join("/") || "none"})`);
     try {
       const m = await ensureTiles(plan, info, {
         onProgress: (p) => (progress = { ...p }),
-        onLevel: (m) => (manifest = m),
+        onLevel: (m) => {
+          manifest = m;
+          devlog(`tiles: level ${m.levels[m.levels.length - 1].size} done at ${(performance.now() - t0).toFixed(0)} ms`);
+        },
         cancelled: () => leaving,
       });
       if (!leaving) manifest = m;
       progress = null;
+      devlog(`tiles: ${leaving ? "paused (left screen)" : "complete"} after ${(performance.now() - t0).toFixed(0)} ms`);
     } catch (e) {
       console.error("[plan] tile generation failed", e);
       genFailed = true;
@@ -148,6 +156,7 @@
           onpintap={(id) => { ds = cancel(ds); selectedId = id; }}
           onpinmove={movePin}
           ondraftmove={(p) => (ds = place(ds, p))}
+          onready={() => devlog(`plan ${planId}: first view ${(performance.now() - opened).toFixed(0)} ms after opening`)}
         />
         {#if generating}<div class="chip">{t("viewer.detail_progress", { percent })}</div>{/if}
       {:else if genFailed}

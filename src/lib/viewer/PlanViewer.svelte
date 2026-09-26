@@ -23,6 +23,7 @@
     onpintap,
     onpinmove,
     ondraftmove,
+    onready,
   }: {
     manifest: TileManifest;
     dir: string;
@@ -33,6 +34,8 @@
     onpintap: (id: string) => void;
     onpinmove: (id: string, p: Point) => void;
     ondraftmove: (p: Point) => void;
+    /** Once, when the first tiles are decoded and on screen. */
+    onready?: () => void;
   } = $props();
 
   const DPR = window.devicePixelRatio || 1;
@@ -172,6 +175,7 @@
       settle();
     });
     ro.observe(container);
+    void tick().then(() => Promise.all([...container.querySelectorAll("img")].map((i) => i.decode().catch(() => {})))).then(() => onready?.());
     const detach = attachGestures(container, {
       get: () => t,
       set: setT,
