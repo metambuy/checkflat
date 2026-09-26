@@ -27,6 +27,7 @@
   let tileHost: HTMLDivElement;
   let t = $state<Transform>({ x: 0, y: 0, scale: 1 });
   let fitScale = $state(1);
+  let worldW = $state(0), worldH = $state(0); // base px; part of the reactive style (Svelte owns the attribute)
   let tileAt = $state<Transform | null>(null);
   let opened: OpenDoc | null = null;
   let page: PDFPageProxy | null = null;
@@ -52,8 +53,8 @@
     const vp1 = page.getViewport({ scale: 1 });
     baseScale = maxBase / Math.max(vp1.width, vp1.height);
     const bw = Math.round(vp1.width * baseScale), bh = Math.round(vp1.height * baseScale);
-    world.style.width = `${bw}px`;
-    world.style.height = `${bh}px`;
+    worldW = bw;
+    worldH = bh;
     const cw = container.clientWidth, ch = container.clientHeight;
     fitScale = Math.min(cw / bw, ch / bh);
     t = { scale: fitScale, x: (cw - bw * fitScale) / 2, y: (ch - bh * fitScale) / 2 };
@@ -125,7 +126,7 @@
   function zoomTo(z: number): Promise<void> {
     const cw = container.clientWidth, ch = container.clientHeight;
     const scale = Math.min(Math.max(fitScale * z, fitScale * 0.5), fitScale * MAX_ZOOM);
-    t = { scale, x: cw / 2 - focus.x * world.offsetWidth * scale, y: ch / 2 - focus.y * world.offsetHeight * scale };
+    t = { scale, x: cw / 2 - focus.x * worldW * scale, y: ch / 2 - focus.y * worldH * scale };
     return renderTile();
   }
 
@@ -159,7 +160,7 @@
 </script>
 
 <div class="viewer" bind:this={container}>
-  <div class="world" bind:this={world} style={`transform: translate(${t.x}px, ${t.y}px) scale(${t.scale})`}></div>
+  <div class="world" bind:this={world} style={`width:${worldW}px;height:${worldH}px;transform: translate(${t.x}px, ${t.y}px) scale(${t.scale})`}></div>
   <div class="tile" bind:this={tileHost} style={tileStyle}></div>
   <div class="zoom">
     <button onclick={() => zoomTo(1)}>fit</button>
