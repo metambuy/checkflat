@@ -135,6 +135,7 @@
 
   <div class="body">
     <div class="stage">
+      <div class="view">
       {#if manifest && info}
         <PlanViewer
           bind:this={viewer}
@@ -163,6 +164,7 @@
           {/if}
         </div>
       {/if}
+      </div>
 
       {#if manifest}
         <div class="actions-bar">
@@ -212,16 +214,17 @@
   .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .plan-screen > :global(.banner) { margin: 0.4rem 12px; }
   .body { flex: 1; min-height: 0; display: flex; }
-  .stage { flex: 1; min-width: 0; position: relative; }
+  .stage { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .view { flex: 1; min-height: 0; position: relative; }
   .panel { display: none; }
   .centre { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; padding: 16px; text-align: center; }
   .bar { width: min(320px, 80%); height: 8px; background: #dde3ec; border-radius: 4px; overflow: hidden; }
   .bar div { height: 100%; background: #143c78; transition: width 0.2s; }
   .chip { position: absolute; left: 8px; top: 8px; background: rgba(20, 60, 120, 0.9); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 12px; pointer-events: none; }
+  /* Below the viewer, not over it, so "fit" shows the whole plan. */
   .actions-bar {
-    position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 0.5rem;
-    padding: 0.5rem 12px calc(0.5rem + env(safe-area-inset-bottom)); background: rgba(255, 255, 255, 0.96);
-    border-top: 1px solid #ddd; box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 12px calc(0.5rem + env(safe-area-inset-bottom));
+    background: #fff; border-top: 1px solid #ddd;
   }
   .actions-bar .muted { font-size: 13px; }
   .pin-row { width: 100%; text-align: left; border: none; border-radius: 6px; background: none; padding: 0.5rem 0.6rem; }

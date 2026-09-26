@@ -126,7 +126,6 @@
   /** Pointer handling on a pin: a short press is a tap (select), movement beyond the slop drags. */
   function pinPointer(e: PointerEvent, id: string, start: Point) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    e.stopPropagation(); // the plan's gestures must not see this pointer
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
     const r = container.getBoundingClientRect();
@@ -203,6 +202,7 @@
   {#each pins as pin (pin.id)}
     {@const s = screenOf(posOf(pin.id, { x: pin.xNorm, y: pin.yNorm }))}
     <button
+      data-pin
       class="pin"
       class:selected={pin.id === selectedId}
       class:dragging={drag?.id === pin.id}
@@ -213,7 +213,7 @@
   {/each}
   {#if draft}
     {@const s = screenOf(posOf("draft", draft))}
-    <button class="pin draft" class:dragging={drag?.id === "draft"} style={`transform:translate(${s.x}px,${s.y}px)`} onpointerdown={(e) => pinPointer(e, "draft", draft)} aria-label="draft"><span class="mark"></span><span class="num">+</span></button>
+    <button data-pin class="pin draft" class:dragging={drag?.id === "draft"} style={`transform:translate(${s.x}px,${s.y}px)`} onpointerdown={(e) => pinPointer(e, "draft", draft)} aria-label="draft"><span class="mark"></span><span class="num">+</span></button>
   {/if}
   <div class="zoom">{zoom.toFixed(1)}×</div>
 </div>

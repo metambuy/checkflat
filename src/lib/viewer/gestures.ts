@@ -66,6 +66,9 @@ export function attachGestures(el: HTMLElement, cb: GestureCallbacks): () => voi
 
   const down = (e: PointerEvent) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Pins handle their own pointers (drag/tap). Svelte delegates onpointerdown to the root, so a
+    // stopPropagation there comes too late for this native listener; skip them here instead.
+    if ((e.target as Element | null)?.closest?.("[data-pin]")) return;
     el.setPointerCapture(e.pointerId);
     const p = local(e);
     pointers.set(e.pointerId, p);
