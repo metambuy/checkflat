@@ -247,6 +247,16 @@ Generation details (P30, WebP): render 14.9–21.4 s, encode 18–19 s, write 8.
 - Try **1024 px render blocks** instead of 2048 to cut the GPU share in the app process (not measured in the spike). If a low-RAM device still fails, cap the top level at 4096 for that device and let the viewer upscale.
 - On the client's 2024–25 phone (8–12 GB) a one-off ~1.4 GB foreground peak is acceptable; on a 4 GB phone it is a risk. The failure mode is a restart that resumes, not data loss.
 
+**Tile quality check (2026-09-26).** P30, 8× at two dense spots (plan centre: grid bubbles, dimension text "B.1.41 Varanda 5.38 m²", tree symbols; legend: small text, hatching, thin rules), screenshots at 1:1 device px compared with the live PDF.js render at device resolution. No visible compression difference between WebP q0.80, q0.92 and lossless; text equally legible. Thin rules in the tiles are slightly lighter/thinner than the live render because the 8192 level is shown at ≈ 0.7× on this phone (resampling, not compression). Full pyramid on the P30:
+
+| WebP quality | disk | generation | encode | peak total PSS |
+|---|---|---|---|---|
+| **q0.80 (kept)** | **3.9 MB** | 32.5 s | 15.0 s | 1388 MB |
+| q0.92 | 5.3 MB | 33.2 s | 15.8 s | 1396 MB |
+| lossless (quality 1.0 in Chromium) | 6.0 MB | 28.7 s | 10.6 s | 1418 MB |
+
+**Decision:** keep WebP q0.80 for all levels. Lossless stays the fallback if a plan shows artefacts (+2.1 MB per plan, no time cost on this WebView).
+
 **Max zoom (decided 2026-09-26, revisitable).** No 16384 level. The maximum zoom is capped so the top level is never upscaled more than 1.5× on screen: `maxScale = min(8 × fit, 1.5 / devicePixelRatio)` in world (top-level) px, using the real `devicePixelRatio` (tiles are `<img>`, not DPR-capped canvases). Phones stay at 8× in portrait: P30 0.70 device px per source px at 8×, a 1440×3200 phone (DPR 3.5) 1.4. The cap bites on tablets (2560×1600, DPR 2, landscape: ≈ 5.4× instead of 8×) and on high-DPR phones in landscape (≈ 6.5×). Revisit if the client needs more zoom on the tablet: options are a 16384 level (≈ 4× the tiles and generation time of the 8192 level) or a live PDF.js tile beyond the top level, which reintroduces the open document and its memory.
 
 **Consequences.**
