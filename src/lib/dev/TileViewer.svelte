@@ -4,7 +4,7 @@
   // matching the zoom is chosen when a gesture settles, and only its visible tiles are in the DOM.
   import { onMount, tick } from "svelte";
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-  import { attachGestures, type Transform } from "./gestures";
+  import { attachGestures, type Transform } from "../viewer/gestures";
   import { runBench } from "./spike14/bench";
   import { dpr, mb, ms, type Log, type Mark } from "./spike14/pdf";
   import type { Level, Manifest } from "./spike14/tiles";

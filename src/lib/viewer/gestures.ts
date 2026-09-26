@@ -1,4 +1,4 @@
-// Pointer-event pan / pinch / wheel handling for the plan viewer.
+// Pointer-event pan / pinch / wheel / tap handling for the plan viewer.
 // Pure input → transform; no rendering here. The viewer owns the transform state.
 
 export interface Transform {
@@ -14,6 +14,15 @@ export interface GestureCallbacks {
   settled(): void;
   minScale(): number;
   maxScale(): number;
+  /** A single-pointer tap at element coordinates (see [`isTap`]). */
+  tap?(x: number, y: number): void;
+}
+
+/** Tap: one pointer only, released within TAP_MS and never moved more than TAP_SLOP px. */
+export const TAP_SLOP = 8;
+export const TAP_MS = 300;
+export function isTap(durationMs: number, maxMovePx: number, maxPointers: number): boolean {
+  return maxPointers === 1 && durationMs < TAP_MS && maxMovePx < TAP_SLOP;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -29,6 +38,8 @@ export function attachGestures(el: HTMLElement, cb: GestureCallbacks): () => voi
   const pointers = new Map<number, { x: number; y: number }>();
   let start: { t: Transform; cx: number; cy: number; dist: number } | null = null;
   let settleTimer: number | undefined;
+  // Tap tracking for the current touch sequence (first pointer down → last pointer up).
+  let seq: { t0: number; x: number; y: number; maxMove: number; maxPointers: number } | null = null;
 
   const local = (e: PointerEvent | WheelEvent) => {
     const r = el.getBoundingClientRect();
@@ -56,13 +67,18 @@ export function attachGestures(el: HTMLElement, cb: GestureCallbacks): () => voi
   const down = (e: PointerEvent) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     el.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, local(e));
+    const p = local(e);
+    pointers.set(e.pointerId, p);
+    if (pointers.size === 1) seq = { t0: performance.now(), x: p.x, y: p.y, maxMove: 0, maxPointers: 1 };
+    else if (seq) seq.maxPointers = Math.max(seq.maxPointers, pointers.size);
     begin();
     clearTimeout(settleTimer);
   };
   const move = (e: PointerEvent) => {
     if (!pointers.has(e.pointerId) || !start) return;
-    pointers.set(e.pointerId, local(e));
+    const p = local(e);
+    pointers.set(e.pointerId, p);
+    if (seq) seq.maxMove = Math.max(seq.maxMove, Math.hypot(p.x - seq.x, p.y - seq.y));
     const c = centroid();
     let t: Transform = { ...start.t, x: start.t.x + (c.x - start.cx), y: start.t.y + (c.y - start.cy) };
     if (pointers.size >= 2 && start.dist > 0) {
@@ -75,7 +91,12 @@ export function attachGestures(el: HTMLElement, cb: GestureCallbacks): () => voi
   const up = (e: PointerEvent) => {
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
-    if (pointers.size > 0) begin(); else { start = null; scheduleSettle(); }
+    if (pointers.size > 0) return begin();
+    start = null;
+    const s = seq;
+    seq = null;
+    if (s && e.type === "pointerup" && isTap(performance.now() - s.t0, s.maxMove, s.maxPointers)) cb.tap?.(s.x, s.y);
+    else scheduleSettle();
   };
   const wheel = (e: WheelEvent) => {
     e.preventDefault();

@@ -63,8 +63,9 @@ impl TileManifest {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TileInfo {
-    /// Absolute directory, for the WebView's asset protocol (`convertFileSrc`).
+    /// Absolute tile directory and plan PDF, for the WebView's asset protocol (`convertFileSrc`).
     pub dir: String,
+    pub pdf: String,
     pub manifest: Option<TileManifest>,
 }
 
@@ -85,9 +86,14 @@ fn read_manifest(dir: &Path) -> Option<TileManifest> {
 }
 
 pub fn info(conn: &Connection, data_dir: &Path, plan_id: &str) -> Result<TileInfo> {
-    let dir = tiles_dir(conn, data_dir, plan_id)?;
+    let plan = plans::get(conn, plan_id)?;
+    let dir = plan_tiles_dir(&plan.project_id, &plan.id).resolve(data_dir);
     let manifest = read_manifest(&dir);
-    Ok(TileInfo { dir: dir.to_string_lossy().into_owned(), manifest })
+    Ok(TileInfo {
+        dir: dir.to_string_lossy().into_owned(),
+        pdf: plan.file_path.resolve(data_dir).to_string_lossy().into_owned(),
+        manifest,
+    })
 }
 
 /// Writes one WebP tile. Partial writes are harmless: a level only counts once the manifest

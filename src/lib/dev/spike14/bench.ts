@@ -1,5 +1,5 @@
 // Same scripted sequence for both designs: ready → 8× at the centre → 4 s programmatic pan → settle.
-import type { Transform } from "../gestures";
+import type { Transform } from "../../viewer/gestures";
 import type { Log, Mark } from "./pdf";
 
 export interface BenchTarget {

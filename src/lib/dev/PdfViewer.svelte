@@ -4,7 +4,7 @@
   // Tiles are double-buffered (rendered off-DOM, then swapped) and replaced canvases are released.
   import { onMount } from "svelte";
   import type { PDFPageProxy, RenderTask } from "pdfjs-dist";
-  import { attachGestures, zoomAt, type Transform } from "./gestures";
+  import { attachGestures, zoomAt, type Transform } from "../viewer/gestures";
   import { runBench } from "./spike14/bench";
   import { dpr, fetchPlan, heap, loadPdfjs, mb, ms, openDoc, releaseCanvas, type Build, type Log, type Mark, type OpenDoc, type PlanKey } from "./spike14/pdf";
 

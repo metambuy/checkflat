@@ -44,6 +44,7 @@ fn tiles_and_manifest_round_trip() {
     assert!(info.manifest.is_none());
     let tiles_dir = paths::plan_tiles_dir(&plan.project_id, &plan.id).resolve(data);
     assert_eq!(Path::new(&info.dir), tiles_dir);
+    assert_eq!(Path::new(&info.pdf), plan.file_path.resolve(data));
 
     tiles::write_tile(&conn, data, &plan.id, 1024, 1, 0, &webp()).unwrap();
     assert!(tiles_dir.join("1024/1_0.webp").is_file());

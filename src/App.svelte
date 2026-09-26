@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { loadLang, t } from "./lib/i18n.svelte";
-  import { go, screen } from "./lib/nav.svelte";
+  import { onBackButtonPress } from "@tauri-apps/api/app";
+  import type { PluginListener } from "@tauri-apps/api/core";
+  import { back, go, screen } from "./lib/nav.svelte";
   import LanguageSwitch from "./lib/components/LanguageSwitch.svelte";
   import ProjectsScreen from "./lib/screens/ProjectsScreen.svelte";
   import ProjectScreen from "./lib/screens/ProjectScreen.svelte";
+  import PlanScreen from "./lib/screens/PlanScreen.svelte";
   // Spikes (Dev screen): dev builds, or a release build made with VITE_SPIKES=1 (D-006/D-014 device
   // measurements). Both are replaced at build time, so a normal release bundle drops the Dev chunk.
   const SPIKES = import.meta.env.DEV || import.meta.env.VITE_SPIKES === "1";
@@ -16,6 +19,20 @@
     ready = true;
   });
   const s = $derived(screen());
+
+  // Android system back: listen only below the root. With a listener registered Tauri never lets
+  // Back leave the app, so on the projects list the platform default (close/background) applies.
+  let backListener: Promise<PluginListener> | null = null;
+  $effect(() => {
+    const atRoot = s.name === "projects";
+    if (!atRoot && !backListener) {
+      backListener = onBackButtonPress(() => back()).catch(() => null as unknown as PluginListener); // desktop: no-op
+    } else if (atRoot && backListener) {
+      const l = backListener;
+      backListener = null;
+      void l.then((x) => x?.unregister());
+    }
+  });
 </script>
 
 <header>
@@ -34,6 +51,8 @@
     <ProjectsScreen />
   {:else if s.name === "project"}
     {#key s.id}<ProjectScreen id={s.id} />{/key}
+  {:else if s.name === "plan"}
+    {#key s.planId}<PlanScreen projectId={s.projectId} planId={s.planId} />{/key}
   {:else if devScreen}
     {#await devScreen then m}<m.default />{/await}
   {/if}
