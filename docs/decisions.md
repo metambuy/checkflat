@@ -160,7 +160,7 @@ So **Typst costs ~22–24 MB of APK** on top of the ~11 MB Tauri shell + printpd
 
 **Applied** (one commit each): capture() rejects a second call while one is pending; a fast Linux `checks` job (svelte-check, `cargo test --workspace --all-features`, `cargo clippy -D warnings`) on push/PR; concurrency group keyed on event name so pushes no longer cancel the manual size job; workflow-level `permissions: contents: read`; SDK platform/build-tools 36 to match `compileSdk`; plugin Gradle stripped to `core-ktx` + `androidx.activity` + Tauri API; `src-tauri/gen/schemas/` untracked and duplicate Android ignore rules removed.
 
-**Deferred to Sprint 3** (tasks added under Sprint 3 in the plan): persistence of the pending capture across process death; a self-contained FileProvider in the plugin; the `assetProtocol` vs base64-over-IPC decision for photo display (the CSP currently allows `asset:` without the protocol being enabled). Reason: all three concern how photos are stored and shown, which is Sprint 3's subject; the spike UI that uses base64 is throwaway.
+**Deferred to Sprint 3** (tasks added under Sprint 3 in the plan; the third one was resolved in Sprint 2 by D-015): persistence of the pending capture across process death; a self-contained FileProvider in the plugin; the `assetProtocol` vs base64-over-IPC decision for photo display (the CSP currently allows `asset:` without the protocol being enabled). Reason: all three concern how photos are stored and shown, which is Sprint 3's subject; the spike UI that uses base64 is throwaway.
 
 ## D-008 — Migrations: rusqlite_migration on `PRAGMA user_version`, backup before migrating (2026-09-25)
 **Context.** Sprint 1 introduces the SQLite schema that every later sprint extends; migrations must be safe on a phone with no way to recover a broken database.
@@ -178,6 +178,7 @@ So **Typst costs ~22–24 MB of APK** on top of the ~11 MB Tauri shell + printpd
 - Deleting a project deletes the row first (cascade), then `projects/<id>/`; a failed disk removal can never leave a row pointing at nothing.
 - `sweep_orphans` at startup **quarantines instead of deleting**: unknown UUID-named project dirs and unreferenced files under live projects' `plans/`, `photos/`, `logo.*` move to `projects/.trash/`; staging files older than 24 h and quarantine entries older than 7 days are removed. Containment: only UUID-named entries, symlinks never followed, every path canonicalized under the data dir, references compared case-insensitively on Windows. **Skipped entirely when the database was created in this run** — an empty database after a lost/replaced file must never wipe user files.
 - Quarantine entries are named `<id>-<stamp>` (stamp = time of quarantine); the 7-day purge is decided by that stamp, never by mtime (a rename keeps the original mtime), and runs before any quarantining in the same pass. `freshly_created` means `user_version` was 0 before migrating, so a zero-byte or schema-less file counts as fresh.
+- **Plan cache dirs (Sprint 2, D-014):** `projects/<pid>/plans/<plan_id>/` holds the plan's tile cache. The sweep keeps it while the plan row exists and quarantines UUID-named dirs whose plan is gone; other dirs under `plans/` are left alone (they used to produce a misleading "symlink or outside data dir" warning). Deleting a plan removes its cache dir.
 - **Sprint 8 notes:** run `PRAGMA wal_checkpoint(TRUNCATE)` before exporting/copying the database so `checkflat.db` alone is complete; the `setting` table is per-device and is excluded from archive export and never overwritten on import.
 - **Backlog:** the sweep runs synchronously in Tauri `setup` and its cost grows with the data dir (review finding, 2026-09-25). It stays there on purpose — moving it after the window is shown would break the "never concurrent with an import" guarantee — but if launch time becomes noticeable, the fix is to sweep only every N days (a `last_sweep` setting) rather than to move it off the startup path.
 
@@ -257,7 +258,7 @@ Generation details (P30, WebP): render 14.9–21.4 s, encode 18–19 s, write 8.
 
 **Decision:** keep WebP q0.80 for all levels. Lossless stays the fallback if a plan shows artefacts (+2.1 MB per plan, no time cost on this WebView).
 
-**Max zoom (decided 2026-09-26, revisitable).** No 16384 level. The maximum zoom is capped so the top level is never upscaled more than 1.5× on screen: `maxScale = min(8 × fit, 1.5 / devicePixelRatio)` in world (top-level) px, using the real `devicePixelRatio` (tiles are `<img>`, not DPR-capped canvases). Phones stay at 8× in portrait: P30 0.70 device px per source px at 8×, a 1440×3200 phone (DPR 3.5) 1.4. The cap bites on tablets (2560×1600, DPR 2, landscape: ≈ 5.4× instead of 8×) and on high-DPR phones in landscape (≈ 6.5×). Revisit if the client needs more zoom on the tablet: options are a 16384 level (≈ 4× the tiles and generation time of the 8192 level) or a live PDF.js tile beyond the top level, which reintroduces the open document and its memory.
+**Max zoom (decided 2026-09-26, revisitable).** No 16384 level. The maximum zoom is capped so the top level is never upscaled more than 1.5× on screen: `maxScale = min(8 × fit, 1.5 / devicePixelRatio)` in world (top-level) px, using the real `devicePixelRatio` (tiles are `<img>`, not DPR-capped canvases). Phones stay at 8× in portrait: P30 0.70 device px per source px at 8×, a 1440×3200 phone (DPR 3.5) 1.4. The cap bites on tablets and on high-DPR phones in landscape. Measured on the 2560×1600 tablet emulator (DPR 2, landscape, viewer 1000×571 css px beside the pin panel): fit is height-limited, so the cap is **7.6×** (the earlier ≈ 5.4× estimate ignored the layout); text at the cap is readable, slightly soft. Revisit if the client needs more zoom on the tablet: options are a 16384 level (≈ 4× the tiles and generation time of the 8192 level) or a live PDF.js tile beyond the top level, which reintroduces the open document and its memory.
 
 **Consequences.**
 - Storage: `projects/<pid>/plans/<plan_id>/tiles/<level>/<x>_<y>.webp` plus `manifest.json` (written last per level). The tiles are a derived cache: no DB column, left out of archives (Sprint 8 regenerates them after import), deleted with the plan, and the startup sweep must keep `plans/<plan_id>/` for live plans (today it warns on any directory there).
@@ -265,3 +266,43 @@ Generation details (P30, WebP): render 14.9–21.4 s, encode 18–19 s, write 8.
 - **Sprint 5:** plan crops for the report (zoomed crop with the pin, overview with the red box) are stitched **in Rust from the tiles** with the `image` crate: no WebView, no PDF.js at report time, unit-testable, identical on Windows. A crop 1/8 of the plan wide is ~1000 px from the 8192 level. With design 1, each crop would have re-opened the document (~9 s once plus ~0.5 s per crop on the P30, at ~900 MB).
 - Plan §3 rows "PDF viewing" and "Plan snapshots" and the §6 A1-lag risk row are updated (2026-09-26).
 - The spike code (`src/lib/dev/spike14/`, `TileViewer.svelte`, `ViewerSpike.svelte`, `src-tauri/src/spike.rs`, `spikes/pss.sh`) stays behind the Dev screen until the Step 2 viewer replaces it. The spike APKs and `dist/` (they embed the client plan) were deleted after the run.
+
+**Step 2 result: production viewer on the P30 (2026-09-26).** Release APK built with `VITE_SPIKES=1` only for the timing log (`dev.log`); no client data in the APK; the plan imported through the Android picker like a user would.
+
+| metric | P30 target | result |
+|---|---|---|
+| first view, plan already prepared (fresh app start) | ≤ 8 s | **78 ms** |
+| first view right after import (the 1024 level, one-off) | – | 8.0 s |
+| full detail after import (all four levels, one-off) | – | 34.7 s |
+| peak total PSS while generating (one-off) | (≤ ~600 MB) | 1440 MB (see the mitigations above) |
+| total PSS peak at 8×, panning, no pins | ≤ 300 MB | **291 MB** |
+| same with 49 pins | ≤ 300 MB | **297 MB** (358 MB before the pins were moved into one translated layer without `box-shadow`) |
+| after 15 s idle | – | app process back to 132 MB |
+| pan at 8× | smooth | smooth (manual + scripted) |
+
+The one-off generation stays above 600 MB, as stated in the mitigation paragraph: foreground with progress, resumable per level, PDF.js loaded only for generation and destroyed right after, base64 tile writes. The viewer itself meets all three targets with 49 pins.
+
+## D-015 — Plan files in the WebView: asset protocol, base64 tile writes (2026-09-26)
+**Context.** The tile viewer (D-014) shows hundreds of `<img>` tiles from the app data dir, and the generator must read the plan PDF. D-007 had deferred the asset-protocol-vs-base64 choice for photos to Sprint 3; the viewer needs it now.
+
+**Outcome.**
+- **Asset protocol on**, scope `$APPDATA/projects/**` only (`tauri.conf.json`, Tauri feature `protocol-asset`). `$APPDATA` is the same `app_data_dir()` the backend uses. Tiles and the PDF are loaded with `convertFileSrc(<absolute path>)`; the backend returns absolute paths (`plan_tiles_info`), the DB keeps storing relative ones (D-010).
+- CSP: `img-src` already had `asset: http://asset.localhost`; `connect-src` now has them too, because the generator `fetch`es the PDF through the asset protocol (tested on Android 10 and 15).
+- **Tile writes go through IPC as base64 strings.** Tauri's Android IPC turns a `Uint8Array` into a JSON number array: write time for a pyramid on the P30 was 8.8 s that way against 2.3 s with base64 (D-014). The backend checks the WebP signature, the level and index ranges, and writes via `RelPath`; the manifest is validated and replaced atomically.
+- Photos (Sprint 3) will use the same `convertFileSrc` path; the base64 photo display in the camera spike is throwaway. This resolves the deferred D-007 item (c).
+
+## D-016 — Android shell: system back and edge-to-edge insets (2026-09-26)
+**Context.** Android 14/15 (the client's 2024–25 phone) enforces edge-to-edge, and without handling, system Back left the app from any screen.
+
+**Outcome.**
+- **Back:** Tauri's `onBackButtonPress` listener is registered only while the app is below the project list. With a listener, Tauri never lets Back leave the app, and it offers no exit command to the WebView. At the root the listener is removed, so Android's default (close/background) applies. Back first asks the current screen (the plan screen cancels a draft pin, then clears the selection) and then goes up one level (`nav.svelte.ts`). Escape does the same on desktop. Verified on Android 10 (P30) and 15 (tablet emulator).
+- **Insets:** WebView 124 reports `env(safe-area-inset-*)` as 0 under edge-to-edge, so the page sat under the status bar. `MainActivity` now pads the content view by the system-bar, cutout and **keyboard** insets (the keyboard inset also keeps focused fields visible, which edge-to-edge otherwise breaks); the bar areas show the header blue with light icons. This works the same on every WebView version.
+- Gotcha recorded: Svelte 5 delegates `onpointerdown` to the root, so `stopPropagation()` in a pin's handler runs after the viewer's native listener. The gesture code ignores pointers that start on `[data-pin]` instead.
+
+## D-017 — Pins: draft until confirmed, ref numbers taken on confirm (2026-09-26)
+**Outcome.**
+- A tap places a **draft** pin that exists only in the UI (no row, no number). **Confirm** calls `create_pin`, which in one transaction takes the project's next number, inserts the observation and advances the counter; **Cancel**, Back or leaving the screen discards the draft. Cancelled drafts therefore never leave gaps. In Sprint 3 the observation sheet's Save replaces Confirm and calls the same function.
+- The number is `max(project.next_ref_no, max(ref_no) + 1)`, so a ref edited upwards (M5) or an imported row cannot collide with `UNIQUE(project_id, ref_no)`. Deleted pins' numbers are not reused. Numbering is continuous per project, pending the client's confirmation.
+- The project is taken from the plan row, not from the UI. Positions are validated (finite, 0–1) before the transaction; the DB `CHECK` is the safety net.
+- Tap-to-place with no add-pin mode (user decision). A tap is one pointer, < 8 px movement, < 300 ms; dragging a pin starts after 6 px and saves on release.
+

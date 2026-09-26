@@ -88,15 +88,16 @@ Note: observations belong to the project (not one visit) so they can carry over;
 
 ### M1 — Plans & pins
 - **Sprint 1** ✅ (2026-09-25): SQLite schema + migrations; projects CRUD; plan import; EN/PT i18n setup. Decisions D-008…D-013.
-- **Sprint 2**: plan viewer (pan/zoom); tap/drag pins; responsive layout phone/tablet/desktop.
+- **Sprint 2** ✅ (2026-09-26): plan viewer (pan/zoom); tap/drag pins; responsive layout phone/tablet/desktop. Decisions D-014…D-017.
   - Step 1 — viewer spike (≤ 1 day, after D-006): `VITE_SPIKES` flag so a release APK shows the Dev screen; PDF.js stage profile (document / operator list + image decode / rasterise, legacy vs modern build, A1 vs A4); on the P30 Pro compare (1) D-002 revised (1024 px quick pass → 3072 px base + viewport tile) vs (2) import-time tile pyramid (512 px tiles, 4 levels, WebP on disk, viewer shows images only; incl. generation time, disk size, peak PSS while generating, backgrounding). Targets for the client's 2024–25 phone: first view ≤ 4 s, total PSS (app + WebView renderer) ≤ 300 MB at 8×, smooth pan; on the P30 Pro time targets are scaled ×2 (≤ 8 s), memory is not. Result → D-014; then a checkpoint before the rest of the sprint. Release APKs and `dist/` from the spike are deleted afterwards (client plan bundled).
   - Then: viewer with the chosen design (**D-014: tile pyramid**, generated in the foreground after import, resumable per level; max zoom capped at ≤ 1.5× upscaling of the top level); tap places a **draft** pin (no ref_no) with Confirm/Cancel — ref_no is taken from `next_ref_no` only on confirm (Sprint 3: observation sheet save), so cancelled drafts leave no gaps; drag to adjust; stored as `x_norm`/`y_norm`; Android back handling; responsive layout (tablet/desktop side panel moves to Sprint 4 if the sprint runs long); asset protocol scoped to `projects/**` (resolves the D-007 item); address field save feedback.
 - *Exit*: pins persist after restart, on phone and tablet.
 
 ### M2 — Observations & photos
 - **Sprint 3**: observation sheet (ref, description, photos); image compression.
-  - Camera plugin follow-ups deferred from the Sprint 0 code review (see decisions D-007): (a) persist the pending capture path so a photo survives the app being killed behind the camera; (b) self-contained FileProvider (own subclass, `file_paths.xml` and `<provider>` in the plugin manifest) instead of relying on the Tauri app template; (c) decide `assetProtocol` + `convertFileSrc` vs base64-over-IPC for showing photos, and drop the dead `asset:` CSP entries if base64 stays.
+  - Camera plugin follow-ups deferred from the Sprint 0 code review (see decisions D-007): (a) persist the pending capture path so a photo survives the app being killed behind the camera; (b) self-contained FileProvider (own subclass, `file_paths.xml` and `<provider>` in the plugin manifest) instead of relying on the Tauri app template; (c) ~~decide `assetProtocol` vs base64 for showing photos~~ resolved in Sprint 2: asset protocol, scope `projects/**` (D-015).
 - **Sprint 4**: photo annotation (ellipse, arrow, freehand); observation list + jump-to-pin.
+  - Backlog from Sprint 2: pins overlap at fit when many are close together (smaller markers or clustering at low zoom); the import dialog still says "Choose a PDF…" for the ~3 s the picker result takes on EMUI (show "Reading PDF…" as soon as the picker closes).
 - *Exit*: full field workflow offline.
 
 ### M3 — Report (first usable)
