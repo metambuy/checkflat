@@ -125,6 +125,8 @@
   }
 
   const screenOf = (p: Point) => toScreen(t, worldSize, p.x, p.y);
+  /** Pin position inside the pins layer (which is translated by t.x, t.y). */
+  const offsetOf = (p: Point) => ({ x: p.x * worldSize.w * t.scale, y: p.y * worldSize.h * t.scale });
 
   /** Pointer handling on a pin: a short press is a tap (select), movement beyond the slop drags. */
   function pinPointer(e: PointerEvent, id: string, start: Point) {
@@ -203,22 +205,26 @@
       <img src={tl.src} alt="" decoding="async" draggable="false" style={`left:${tl.x}px;top:${tl.y}px;width:${tl.w}px;height:${tl.h}px`} />
     {/each}
   </div>
-  {#each pins as pin (pin.id)}
-    {@const s = screenOf(posOf(pin.id, { x: pin.xNorm, y: pin.yNorm }))}
-    <button
-      data-pin
-      class="pin"
-      class:selected={pin.id === selectedId}
-      class:dragging={drag?.id === pin.id}
-      style={`transform:translate(${s.x}px,${s.y}px)`}
-      onpointerdown={(e) => pinPointer(e, pin.id, { x: pin.xNorm, y: pin.yNorm })}
-      aria-label={String(pin.refNo)}
-    ><span class="mark"></span><span class="num">{pin.refNo}</span></button>
-  {/each}
-  {#if draft}
-    {@const s = screenOf(posOf("draft", draft))}
-    <button data-pin class="pin draft" class:dragging={drag?.id === "draft"} style={`transform:translate(${s.x}px,${s.y}px)`} onpointerdown={(e) => pinPointer(e, "draft", draft)} aria-label="draft"><span class="mark"></span><span class="num">+</span></button>
-  {/if}
+  <!-- Pins: one layer that moves with the pan (only its translate changes per frame); each pin's
+       offset depends on the zoom only. Pins keep their size at every zoom. -->
+  <div class="pins" style={`transform:translate(${t.x}px,${t.y}px)`}>
+    {#each pins as pin (pin.id)}
+      {@const s = offsetOf(posOf(pin.id, { x: pin.xNorm, y: pin.yNorm }))}
+      <button
+        data-pin
+        class="pin"
+        class:selected={pin.id === selectedId}
+        class:dragging={drag?.id === pin.id}
+        style={`left:${s.x}px;top:${s.y}px`}
+        onpointerdown={(e) => pinPointer(e, pin.id, { x: pin.xNorm, y: pin.yNorm })}
+        aria-label={String(pin.refNo)}
+      ><span class="mark"></span><span class="num">{pin.refNo}</span></button>
+    {/each}
+    {#if draft}
+      {@const s = offsetOf(posOf("draft", draft))}
+      <button data-pin class="pin draft" class:dragging={drag?.id === "draft"} style={`left:${s.x}px;top:${s.y}px`} onpointerdown={(e) => pinPointer(e, "draft", draft)} aria-label="draft"><span class="mark"></span><span class="num">+</span></button>
+    {/if}
+  </div>
   <div class="zoom">{zoom.toFixed(1)}×</div>
 </div>
 
@@ -227,17 +233,18 @@
   .world { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: #fff; }
   .world img { position: absolute; max-width: none; pointer-events: none; }
   /* A pin is a 34 px teardrop whose tip sits on the point; it keeps its size at every zoom. */
+  .pins { position: absolute; left: 0; top: 0; width: 0; height: 0; }
   .pin {
-    position: absolute; left: -17px; top: -46px; width: 34px; height: 46px; min-height: 0; padding: 0;
+    position: absolute; width: 34px; height: 46px; margin: -46px 0 0 -17px; min-height: 0; padding: 0;
     border: none; background: none; touch-action: none; cursor: grab;
   }
   .mark {
     position: absolute; left: 0; top: 0; width: 34px; height: 34px; box-sizing: border-box;
     border-radius: 50% 50% 50% 0; transform: translate(0, 6px) rotate(-45deg); transform-origin: 50% 50%;
-    background: #c62828; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    background: #c62828; border: 2px solid #fff; outline: 1px solid rgba(0, 0, 0, 0.35); /* no box-shadow: costly to raster for 50 pins */
   }
   .num { position: absolute; left: 0; top: 6px; width: 34px; line-height: 34px; text-align: center; color: #fff; font-weight: 700; font-size: 13px; }
-  .pin.selected .mark { background: #143c78; box-shadow: 0 0 0 3px #ffd54f; }
+  .pin.selected .mark { background: #143c78; outline: 3px solid #ffd54f; }
   .pin.draft .mark { background: #fff; border: 2px dashed #c62828; }
   .pin.draft .num { color: #c62828; font-size: 22px; }
   .pin.dragging { cursor: grabbing; z-index: 2; }
