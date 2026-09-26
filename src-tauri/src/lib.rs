@@ -2,6 +2,7 @@
 //! (report engines, camera) that the dev screen still uses.
 
 mod commands;
+mod devlog;
 mod error;
 mod state;
 
@@ -109,6 +110,7 @@ pub fn run() {
             platform_info,
             generate_report,
             capture_photo,
+            devlog::dev_log,
             commands::projects::list_projects,
             commands::projects::get_project,
             commands::projects::create_project,
@@ -121,6 +123,15 @@ pub fn run() {
             commands::plans::list_plans,
             commands::plans::rename_plan,
             commands::plans::delete_plan,
+            commands::plans::get_plan,
+            commands::observations::list_pins,
+            commands::observations::create_pin,
+            commands::observations::move_pin,
+            commands::observations::delete_pin,
+            commands::tiles::plan_tiles_info,
+            commands::tiles::write_plan_tile,
+            commands::tiles::write_plan_tile_manifest,
+            commands::tiles::clear_plan_tiles,
             commands::settings::get_setting,
             commands::settings::set_setting,
         ])

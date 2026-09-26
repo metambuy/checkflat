@@ -14,6 +14,9 @@
   let editingName = $state(false);
   let nameValue = $state("");
   let addressValue = $state("");
+  let addressStatus = $state<"idle" | "saving" | "saved" | "error">("idle");
+  let addressTimer: number | undefined;
+  let addressChain: Promise<void> = Promise.resolve();
   let importing = $state(false);
   let renamingPlan = $state<Plan | null>(null);
   let planTitle = $state("");
@@ -22,7 +25,7 @@
   async function refresh() {
     try {
       project = await api.getProject(id);
-      addressValue = project.address;
+      if (addressStatus !== "saving") addressValue = project.address;
       plans = await api.listPlans(id);
     } catch (e) {
       error = asAppError(e);
@@ -33,10 +36,33 @@
   async function saveName() {
     try { await api.renameProject(id, nameValue); editingName = false; await refresh(); } catch (e) { error = asAppError(e); }
   }
-  async function saveAddress() {
-    if (!project || addressValue.trim() === project.address) return;
-    try { await api.updateProjectAddress(id, addressValue); await refresh(); } catch (e) { error = asAppError(e); }
+  /** Address saves itself: ~800 ms after typing stops, on blur and on Enter. Saves run one at a
+   * time; the typed text is never overwritten by a reply, and stays in the field if saving fails. */
+  function saveAddress() {
+    clearTimeout(addressTimer);
+    addressChain = addressChain.then(async () => {
+      const value = addressValue.trim();
+      if (!project || value === project.address) {
+        if (addressStatus === "saving") addressStatus = "saved";
+        return;
+      }
+      addressStatus = "saving";
+      try {
+        project = await api.updateProjectAddress(id, value);
+        addressStatus = addressValue.trim() === project.address ? "saved" : "saving";
+        if (addressStatus === "saving") saveAddress(); // typed more while saving
+      } catch (e) {
+        addressStatus = "error";
+        error = asAppError(e);
+      }
+    });
   }
+  function addressInput() {
+    addressStatus = "idle";
+    clearTimeout(addressTimer);
+    addressTimer = window.setTimeout(saveAddress, 800);
+  }
+  onMount(() => () => { clearTimeout(addressTimer); });
   async function savePlanTitle() {
     if (!renamingPlan) return;
     try { await api.renamePlan(renamingPlan.id, planTitle); renamingPlan = null; await refresh(); } catch (e) { error = asAppError(e); }
@@ -68,8 +94,16 @@
           <button onclick={() => { nameValue = project!.name; editingName = true; }}>{t("common.rename")}</button>
         </div>
       {/if}
-      <label>{t("projects.address")}
-        <input bind:value={addressValue} placeholder={t("project.address_placeholder")} onblur={saveAddress} autocomplete="off" />
+      <label>
+        <span class="row">{t("projects.address")}<span class="status {addressStatus}" aria-live="polite">{addressStatus === "saving" ? t("common.saving") : addressStatus === "saved" ? `✓ ${t("common.saved")}` : addressStatus === "error" ? t("common.save_failed") : ""}</span></span>
+        <input
+          bind:value={addressValue}
+          placeholder={t("project.address_placeholder")}
+          oninput={addressInput}
+          onblur={saveAddress}
+          onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveAddress(); } }}
+          autocomplete="off"
+        />
       </label>
     </header>
 
@@ -92,10 +126,10 @@
                 </div>
               </form>
             {:else}
-              <div class="grow">
+              <button class="plain grow" onclick={() => go({ name: "plan", projectId: id, planId: plan.id })}>
                 <strong>{plan.title}</strong>
-                <div class="muted">{t("plan.size", { width: ptToMm(plan.widthPt), height: ptToMm(plan.heightPt) })}</div>
-              </div>
+                <span class="muted">{t("plan.size", { width: ptToMm(plan.widthPt), height: ptToMm(plan.heightPt) })}</span>
+              </button>
               <button onclick={() => { renamingPlan = plan; planTitle = plan.title; }}>{t("common.rename")}</button>
               <button class="danger" onclick={() => (planToDelete = plan)}>{t("common.delete")}</button>
             {/if}
@@ -108,7 +142,7 @@
   {/if}
 
   {#if importing}
-    <ImportPlanDialog projectId={id} onimported={() => { importing = false; refresh(); }} onclose={() => (importing = false)} />
+    <ImportPlanDialog projectId={id} onimported={(p) => { importing = false; go({ name: "plan", projectId: id, planId: p.id }); }} onclose={() => (importing = false)} />
   {/if}
   <ConfirmDialog
     open={planToDelete !== null}
@@ -119,3 +153,9 @@
     oncancel={() => (planToDelete = null)}
   />
 </section>
+
+<style>
+  .status { font-size: 12px; margin-left: 0.5rem; color: #666; }
+  .status.saved { color: #2e7d32; }
+  .status.error { color: #b3261e; }
+</style>

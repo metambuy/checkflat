@@ -1,6 +1,7 @@
 //! Relative-path policy and on-disk layout under the app data dir.
 //!
-//! Layout: `projects/<project_id>/plans/<plan_id>.pdf`, `projects/<project_id>/photos/<photo_id>.jpg`,
+//! Layout: `projects/<project_id>/plans/<plan_id>.pdf`, its tile cache
+//! `projects/<project_id>/plans/<plan_id>/tiles/` (D-014), `projects/<project_id>/photos/<photo_id>.jpg`,
 //! `projects/<project_id>/logo.<ext>`, `tmp/<token>.pdf` (import staging), `projects/.trash/` (quarantine),
 //! `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>`) at the root. The database only ever stores [`RelPath`]s.
 use std::collections::HashSet;
@@ -19,6 +20,7 @@ pub const TRASH_DIR: &str = ".trash";
 pub const TMP_DIR: &str = "tmp";
 pub const PLANS_DIR: &str = "plans";
 pub const PHOTOS_DIR: &str = "photos";
+pub const TILES_DIR: &str = "tiles";
 
 /// A validated path relative to the app data dir: `/`-separated, no absolute form, no `..`,
 /// no `\\`, `:` or control characters (string rules, identical on every OS).
@@ -104,6 +106,15 @@ pub fn plan_file(project_id: &str, plan_id: &str) -> RelPath {
     RelPath::new(&format!("{PROJECTS_DIR}/{project_id}/{PLANS_DIR}/{plan_id}.pdf")).expect("valid")
 }
 
+/// Per-plan directory for derived files (the tile cache); deleted with the plan.
+pub fn plan_dir(project_id: &str, plan_id: &str) -> RelPath {
+    RelPath::new(&format!("{PROJECTS_DIR}/{project_id}/{PLANS_DIR}/{plan_id}")).expect("valid")
+}
+
+pub fn plan_tiles_dir(project_id: &str, plan_id: &str) -> RelPath {
+    plan_dir(project_id, plan_id).join(TILES_DIR).expect("valid")
+}
+
 pub fn staging_file(token: &str) -> RelPath {
     RelPath::new(&format!("{TMP_DIR}/{token}.pdf")).expect("valid")
 }
@@ -122,7 +133,8 @@ const TRASH_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 
 /// Startup maintenance. Quarantines (moves to `projects/.trash/`) rather than deletes:
 /// (a) project dirs with no `project` row, (b) files under live projects' `plans/`, `photos/`
-/// and `logo.*` that no row references; removes (c) staging files older than 24 h and
+/// and `logo.*` that no row references, and UUID-named `plans/<plan_id>/` cache dirs whose plan
+/// row is gone; removes (c) staging files older than 24 h and
 /// (d) quarantine entries older than 7 days. Skipped entirely when the database was created
 /// by this process (`freshly_created`): an empty DB must never wipe user files.
 ///
@@ -148,6 +160,14 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
         }
     };
     let live: HashSet<String> = query_strings(conn, "SELECT id FROM project")?.into_iter().collect();
+    // Per-plan cache dirs `plans/<plan_id>/` are kept while the plan row exists.
+    let live_plan_dirs: HashSet<String> = query_strings(conn, "SELECT project_id || '/' || id FROM plan")?
+        .into_iter()
+        .filter_map(|s| {
+            let (project, plan) = s.split_once('/')?;
+            RelPath::new(&format!("{PROJECTS_DIR}/{project}/{PLANS_DIR}/{plan}")).ok().map(|p| p.key())
+        })
+        .collect();
     let mut referenced: HashSet<String> = HashSet::new();
     for sql in [
         "SELECT file_path FROM plan",
@@ -196,7 +216,18 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
                 if let Ok(files) = std::fs::read_dir(path.join(sub)) {
                     for f in files.flatten() {
                         let fname = f.file_name().to_string_lossy().into_owned();
-                        candidates.push((f.path(), format!("{rel_project}/{sub}/{fname}")));
+                        let rel = format!("{rel_project}/{sub}/{fname}");
+                        // Plan cache dirs: only UUID-named real dirs are considered; kept while
+                        // the plan exists, quarantined otherwise. Other dirs are left alone.
+                        if sub == PLANS_DIR && is_real_dir(&f.path()) {
+                            let Ok(key) = RelPath::new(&rel).map(|p| p.key()) else { continue };
+                            if ids::is_id(&fname) && !live_plan_dirs.contains(&key) && contained(&f.path(), &root) {
+                                let dest = trash_root.join(format!("{name}-{stamp}")).join(sub).join(&fname);
+                                quarantine(&f.path(), &dest, &rel, &mut report);
+                            }
+                            continue;
+                        }
+                        candidates.push((f.path(), rel));
                     }
                 }
             }
