@@ -4,7 +4,3 @@ interface ImportMetaEnv {
   readonly VITE_SPIKES?: string;
 }
 
-// pdfjs-dist ships a declaration for the legacy entry point only.
-declare module "pdfjs-dist/build/pdf.mjs" {
-  export * from "pdfjs-dist";
-}
