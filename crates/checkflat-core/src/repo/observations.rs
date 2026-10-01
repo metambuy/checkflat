@@ -1,5 +1,6 @@
 //! Observations as pins (Sprint 2). A draft pin exists only in the UI; [`create_pin`] is the
 //! confirm step and the only place a ref number is taken, so a cancelled draft never leaves a gap.
+//! How the number is chosen lives in [`assign_ref`] alone.
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::models::Observation;
@@ -44,29 +45,38 @@ pub fn list_for_plan(conn: &Connection, plan_id: &str) -> Result<Vec<Observation
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// Confirm a draft pin: in one transaction take the project's next ref number, insert the
-/// observation and advance the counter. The number is never below an existing ref + 1, so a ref
-/// edited upwards (M5, Sprint 3) cannot collide. On any error nothing changes.
+/// Ref assignment, isolated so the Sprint 3 migration swaps only this function (D-018: per-project
+/// ref template with project code, fraction and sequence). Until then it is a placeholder: the
+/// project's continuous counter. Takes the next number and advances `project.next_ref_no`; the
+/// number is never below an existing ref + 1, so a ref edited upwards cannot collide. Must run
+/// inside the transaction that inserts the observation.
+fn assign_ref(tx: &Connection, project_id: &str, now: &str) -> Result<i64> {
+    let ref_no: i64 = tx.query_row(
+        "SELECT max(p.next_ref_no, COALESCE((SELECT max(ref_no) + 1 FROM observation WHERE project_id = p.id), 1))
+         FROM project p WHERE p.id = ?1",
+        [project_id],
+        |r| r.get(0),
+    )?;
+    tx.execute(
+        "UPDATE project SET next_ref_no = ?2, updated_at = ?3 WHERE id = ?1",
+        params![project_id, ref_no + 1, now],
+    )?;
+    Ok(ref_no)
+}
+
+/// Confirm a draft pin: in one transaction assign the ref ([`assign_ref`]) and insert the
+/// observation. On any error nothing changes.
 pub fn create_pin(conn: &Connection, plan_id: &str, x: f64, y: f64) -> Result<Observation> {
     check_pos(x, y)?;
     let plan = plans::get(conn, plan_id)?;
     let id = ids::new_id();
     let now = clock::now_iso();
     let tx = conn.unchecked_transaction()?;
-    let ref_no: i64 = tx.query_row(
-        "SELECT max(p.next_ref_no, COALESCE((SELECT max(ref_no) + 1 FROM observation WHERE project_id = p.id), 1))
-         FROM project p WHERE p.id = ?1",
-        [&plan.project_id],
-        |r| r.get(0),
-    )?;
+    let ref_no = assign_ref(&tx, &plan.project_id, &now)?;
     tx.execute(
         "INSERT INTO observation(id, project_id, plan_id, ref_no, x_norm, y_norm, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
         params![id, plan.project_id, plan_id, ref_no, x, y, now],
-    )?;
-    tx.execute(
-        "UPDATE project SET next_ref_no = ?2, updated_at = ?3 WHERE id = ?1",
-        params![plan.project_id, ref_no + 1, now],
     )?;
     tx.commit()?;
     get(conn, &id)
