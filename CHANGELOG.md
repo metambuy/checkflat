@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 2 — client feedback 2026-10-01 (D-018)
+- Pins: tap-to-place replaced by an **add-pin mode** — "+" in the action bar, the next tap places the draft and leaves the mode; a tap on the empty plan outside the mode does nothing; Back/Escape leaves the mode. Draft state-machine tests updated.
+- Core: ref assignment isolated in `assign_ref` (placeholder on `next_ref_no` until the Sprint 3 ref-format migration); no schema change.
+- Docs: plan §0 client answers (ref format, report, plan revisions, Xiaomi 15, no tablet); tablet/desktop side panel moved from Sprint 2 to the backlog.
+
 ## Sprint 2 — 2026-09-26 (plan viewer, pins, responsive layout)
 - Viewer spike (D-014): `VITE_SPIKES` release builds with the Dev screen; PDF.js stage profile on the P30 (the open document of the A1 plan holds ~780 MB); design comparison; **import-time tile pyramid** chosen (512 px WebP q0.80, levels 1024–8192, zoom capped at ≤ 1.5× upscaling).
 - Core: pins (`create_pin` = confirm, takes the ref number in one transaction; move, delete, list), tile cache storage with a validated manifest, plan delete removes its cache, sweep keeps live plans' cache dirs; 20 new tests.
