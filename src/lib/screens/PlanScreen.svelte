@@ -1,6 +1,7 @@
 <script lang="ts">
-  // One plan: tile viewer + pins. Tap places a draft pin (not persisted, no number); Confirm calls
-  // create_pin, which takes the ref number; Cancel/Back discards the draft (no gap). The tile
+  // One plan: tile viewer + pins. "+" enters add-pin mode; the next tap places a draft pin (not
+  // persisted, no number) and leaves the mode; Confirm calls create_pin, which takes the ref
+  // number; Cancel/Back leaves the mode or discards the draft (no gap). The tile
   // pyramid is generated here, in the foreground, the first time the plan is opened (D-014).
   import { onMount } from "svelte";
   import { api, asAppError, type AppError, type Observation, type Plan, type TileInfo, type TileManifest } from "../api";
@@ -9,7 +10,7 @@
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import PlanViewer from "../viewer/PlanViewer.svelte";
-  import { cancel, confirm, noDraft, place, type DraftState } from "../viewer/draft";
+  import { cancel, confirm, moveDraft, noDraft, startAdding, tap, type DraftState } from "../viewer/draft";
   import { ensureTiles, isComplete, type Progress } from "../viewer/tiles";
   import type { Point } from "../viewer/coords";
   import { devlog } from "../devlog";
@@ -60,7 +61,7 @@
 
   onMount(() => {
     setBackHandler(() => {
-      if (ds.draft && !ds.saving) { ds = cancel(ds); return true; }
+      if ((ds.adding || ds.draft) && !ds.saving) { ds = cancel(ds); return true; }
       if (selectedId) { selectedId = null; return true; }
       return false;
     });
@@ -87,9 +88,9 @@
     };
   });
 
-  function onTap(p: Point) {
+  function startAdd() {
     selectedId = null;
-    ds = place(ds, p);
+    ds = startAdding(ds);
   }
 
   async function confirmDraft() {
@@ -152,10 +153,11 @@
           {pins}
           draft={ds.draft}
           {selectedId}
-          ontap={onTap}
+          adding={ds.adding}
+          ontap={(p) => (ds = tap(ds, p))}
           onpintap={(id) => { ds = cancel(ds); selectedId = id; }}
           onpinmove={movePin}
-          ondraftmove={(p) => (ds = place(ds, p))}
+          ondraftmove={(p) => (ds = moveDraft(ds, p))}
           onready={() => devlog(`plan ${planId}: first view ${(performance.now() - opened).toFixed(0)} ms after opening`)}
         />
         {#if generating}<div class="chip">{t("viewer.detail_progress", { percent })}</div>{/if}
@@ -181,13 +183,18 @@
             <span class="grow">{t("pin.draft")}</span>
             <button onclick={() => (ds = cancel(ds))} disabled={ds.saving}>{t("common.cancel")}</button>
             <button class="primary" onclick={confirmDraft} disabled={ds.saving}>{t("common.confirm")}</button>
+          {:else if ds.adding}
+            <span class="grow">{t("viewer.tap_hint")}</span>
+            <button onclick={() => (ds = cancel(ds))}>{t("common.cancel")}</button>
           {:else if selected}
             <span class="grow">{t("pin.label", { ref: selected.refNo })}</span>
             <button class="danger" onclick={() => (toDelete = selected)}>{t("common.delete")}</button>
             <button onclick={() => (selectedId = null)}>{t("common.close")}</button>
+            <button class="primary add" onclick={startAdd} aria-label={t("pin.add")} title={t("pin.add")}>+</button>
           {:else}
-            <span class="grow muted">{t("viewer.tap_hint")}</span>
+            <span class="grow"></span>
             <button onclick={() => viewer?.fitView()}>{t("viewer.fit")}</button>
+            <button class="primary add" onclick={startAdd} aria-label={t("pin.add")} title={t("pin.add")}>+</button>
           {/if}
         </div>
       {/if}
@@ -235,7 +242,7 @@
     display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 12px calc(0.5rem + env(safe-area-inset-bottom));
     background: #fff; border-top: 1px solid #ddd;
   }
-  .actions-bar .muted { font-size: 13px; }
+  .add { min-width: 44px; font-size: 20px; font-weight: 700; line-height: 1; }
   .pin-row { width: 100%; text-align: left; border: none; border-radius: 6px; background: none; padding: 0.5rem 0.6rem; }
   .pin-row.active { background: #e3ebf7; color: #143c78; font-weight: 600; }
   /* Tablet and desktop: pin list beside the plan. */

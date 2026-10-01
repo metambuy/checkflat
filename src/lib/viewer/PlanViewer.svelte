@@ -19,6 +19,7 @@
     pins,
     draft,
     selectedId = null,
+    adding = false,
     ontap,
     onpintap,
     onpinmove,
@@ -30,6 +31,8 @@
     pins: Observation[];
     draft: Point | null;
     selectedId?: string | null;
+    /** Add-pin mode: the next tap on the plan places the draft (crosshair cursor). */
+    adding?: boolean;
     ontap: (p: Point) => void;
     onpintap: (id: string) => void;
     onpinmove: (id: string, p: Point) => void;
@@ -199,7 +202,7 @@
   });
 </script>
 
-<div class="viewer" bind:this={container}>
+<div class="viewer" class:adding bind:this={container}>
   <div class="world" style={`width:${worldSize.w}px;height:${worldSize.h}px;transform:translate(${t.x}px,${t.y}px) scale(${t.scale})`}>
     {#each tiles as tl (tl.key)}
       <img src={tl.src} alt="" decoding="async" draggable="false" style={`left:${tl.x}px;top:${tl.y}px;width:${tl.w}px;height:${tl.h}px`} />
@@ -230,6 +233,7 @@
 
 <style>
   .viewer { position: absolute; inset: 0; overflow: hidden; background: #8a8f96; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .viewer.adding { cursor: crosshair; }
   .world { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: #fff; }
   .world img { position: absolute; max-width: none; pointer-events: none; }
   /* A pin is a 34 px teardrop whose tip sits on the point; it keeps its size at every zoom. */
