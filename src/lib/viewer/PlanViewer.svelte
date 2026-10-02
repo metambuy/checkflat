@@ -9,7 +9,7 @@
   import { attachGestures } from "./gestures";
   import { TOP_LEVEL } from "./config";
   import {
-    centreOn, chooseLevel, clamp01, clampPan, fitScale, fitTransform, insidePlan, maxScale, MIN_ZOOM,
+    centreOn, chooseLevel, clamp01, clampPan, fitScale, fitTransform, hasArea, insidePlan, maxScale, MIN_ZOOM,
     refit, toNorm, toScreen, type Point, type Size, type Transform,
   } from "./coords";
 
@@ -168,12 +168,17 @@
   const posOf = (id: string, p: Point) => (drag?.id === id ? drag.p : p);
 
   onMount(() => {
-    view = { w: container.clientWidth, h: container.clientHeight };
-    t = fitTransform(view, worldSize);
-    settle();
+    // A 0×0 container (window minimised, layout not settled) is ignored: no transform is computed
+    // from it, and the first real size from the ResizeObserver fits the plan.
+    const v0 = { w: container.clientWidth, h: container.clientHeight };
+    if (hasArea(v0)) {
+      view = v0;
+      t = fitTransform(view, worldSize);
+      settle();
+    }
     const ro = new ResizeObserver(() => {
       const nv = { w: container.clientWidth, h: container.clientHeight };
-      if (!nv.w || !nv.h || (nv.w === view.w && nv.h === view.h)) return;
+      if (!hasArea(nv) || (nv.w === view.w && nv.h === view.h)) return;
       const old = view;
       view = nv;
       setT(refit(t, old, nv, worldSize));

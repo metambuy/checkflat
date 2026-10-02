@@ -59,3 +59,19 @@ test("refit keeps the centre point and the relative zoom", () => {
   close(after.y, before.y, 1e-9);
   close(r.scale / Math.min(b.w / world.w, b.h / world.h), 4, 1e-9);
 });
+
+test("refit from a 0×0 container fits the plan instead of producing NaN", () => {
+  const zero = { w: 0, h: 0 }, real = { w: 360, h: 700 };
+  const atMount = fitTransform(zero, world); // what an unguarded mount computes: scale 0
+  for (const t of [atMount, { x: 0, y: 0, scale: 1 }, { x: NaN, y: NaN, scale: NaN }]) {
+    const r = refit(t, zero, real, world);
+    assert.deepEqual(r, fitTransform(real, world));
+    assert.ok(Number.isFinite(r.x) && Number.isFinite(r.y) && r.scale > 0);
+  }
+  // A broken transform with a real old view is also replaced by fit.
+  assert.deepEqual(refit({ x: 0, y: 0, scale: 0 }, real, real, world), fitTransform(real, world));
+  // A normal rotation still keeps the centre and the relative zoom.
+  const t = { ...fitTransform(real, world) };
+  const rotated = refit(t, real, { w: 700, h: 360 }, world);
+  close(toNorm(rotated, world, 350, 180).x, 0.5);
+});

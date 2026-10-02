@@ -58,8 +58,13 @@ export function centreOn(view: Size, world: Size, nx: number, ny: number, scale:
   return { scale, x: view.w / 2 - nx * world.w * scale, y: view.h / 2 - ny * world.h * scale };
 }
 
-/** After a resize/rotation: keep the plan point at the centre and the zoom relative to fit. */
+export const hasArea = (s: Size) => s.w > 0 && s.h > 0;
+
+/** After a resize/rotation: keep the plan point at the centre and the zoom relative to fit. With
+ * no usable previous view (the container was 0×0, e.g. a minimised window, or the transform is
+ * not a positive finite scale) there is nothing to keep: fit the plan in the new view. */
 export function refit(t: Transform, oldView: Size, newView: Size, world: Size): Transform {
+  if (!hasArea(oldView) || !(t.scale > 0) || !Number.isFinite(t.scale + t.x + t.y)) return fitTransform(newView, world);
   const c = toNorm(t, world, oldView.w / 2, oldView.h / 2);
   const rel = t.scale / fitScale(oldView, world);
   return centreOn(newView, world, clamp01(c.x), clamp01(c.y), rel * fitScale(newView, world));
