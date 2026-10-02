@@ -4,6 +4,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api, type Plan, type TileManifest } from "../api";
 import { TILES } from "./config";
+import * as manifests from "./manifest";
 import { singleFlight } from "./singleFlight";
 
 /** PDF.js is loaded only when tiles must be generated; viewing never loads it (D-014). Legacy
@@ -19,14 +20,10 @@ export interface Progress {
   total: number;
 }
 
-/** True when the manifest was produced with the current settings (possibly unfinished). */
-function compatible(m: TileManifest | null): m is TileManifest {
-  return !!m && m.version === TILES.version && m.tile === TILES.tile && m.levels.every((l, i) => l.size === TILES.levels[i]);
-}
-
-export function isComplete(m: TileManifest | null): boolean {
-  return compatible(m) && m.levels.length === TILES.levels.length;
-}
+const compatible = (m: TileManifest | null): m is TileManifest => manifests.compatible(m, TILES);
+export const isComplete = (m: TileManifest | null): boolean => manifests.isComplete(m, TILES);
+/** May the viewer show this manifest (current settings, at least one level)? */
+export const viewable = (m: TileManifest | null): m is TileManifest => manifests.viewable(m, TILES);
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

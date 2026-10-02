@@ -11,7 +11,7 @@
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import PlanViewer from "../viewer/PlanViewer.svelte";
   import { cancel, confirm, moveDraft, noDraft, startAdding, tap, type DraftState } from "../viewer/draft";
-  import { ensureTiles, isComplete, type Progress } from "../viewer/tiles";
+  import { ensureTiles, isComplete, viewable, type Progress } from "../viewer/tiles";
   import type { Point } from "../viewer/coords";
   import { devlog } from "../devlog";
 
@@ -68,7 +68,9 @@
     (async () => {
       try {
         [plan, pins, info] = await Promise.all([api.getPlan(planId), api.listPins(planId), api.planTilesInfo(planId)]);
-        if (info.manifest?.levels.length) manifest = info.manifest;
+        // Never a manifest from other generator settings: prepare() clears that cache first, and
+        // the viewer then gets the new levels as they complete.
+        if (viewable(info.manifest)) manifest = info.manifest;
         if (!isComplete(info.manifest)) await prepare();
       } catch (e) {
         error = asAppError(e);
