@@ -41,7 +41,7 @@
     const t0 = performance.now();
     devlog(`tiles: start (levels on disk: ${info.manifest?.levels.map((l) => l.size).join("/") || "none"})`);
     try {
-      const m = await ensureTiles(plan, info, {
+      const m = await ensureTiles(plan, {
         onProgress: (p) => (progress = { ...p }),
         onLevel: (m) => {
           manifest = m;

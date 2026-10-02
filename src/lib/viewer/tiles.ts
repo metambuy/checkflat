@@ -2,8 +2,9 @@
 // levels; the viewer then shows images only. Resumable per level: the manifest is rewritten after
 // each finished level, and a restart continues with the first missing one.
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { api, type Plan, type TileInfo, type TileManifest } from "../api";
+import { api, type Plan, type TileManifest } from "../api";
 import { TILES } from "./config";
+import { singleFlight } from "./singleFlight";
 
 /** PDF.js is loaded only when tiles must be generated; viewing never loads it (D-014). Legacy
  * build: no measurable gain from the modern one, and it also runs on WebView < 126. */
@@ -43,13 +44,22 @@ export interface GenerateOptions {
   onProgress?(p: Progress): void;
   /** Called after each finished level with the manifest now on disk. */
   onLevel?(m: TileManifest): void;
-  /** Checked between tiles; generation stops (resumable) when it returns true. */
+  /** Checked before each render block and between tiles; generation stops (resumable) when it
+   * returns true. */
   cancelled?(): boolean;
 }
 
 /** Brings the plan's tile cache up to date and returns the final manifest (or the partial one
- * if cancelled). The PDF.js document is always destroyed before returning. */
-export async function ensureTiles(plan: Plan, info: TileInfo, opts: GenerateOptions = {}): Promise<TileManifest> {
+ * if cancelled). The PDF.js document is always destroyed before returning. One run per plan: a
+ * new call cancels the previous run and waits for it to destroy its document before it reads the
+ * cache state and loads the PDF again. */
+export function ensureTiles(plan: Plan, opts: GenerateOptions = {}): Promise<TileManifest> {
+  return singleFlight(plan.id, (superseded) => generate(plan, { ...opts, cancelled: () => superseded() || !!opts.cancelled?.() }));
+}
+
+async function generate(plan: Plan, opts: GenerateOptions): Promise<TileManifest> {
+  // Read after the previous run has stopped: it may have finished more levels.
+  const info = await api.planTilesInfo(plan.id);
   let manifest: TileManifest;
   if (compatible(info.manifest)) {
     manifest = info.manifest;
@@ -59,6 +69,7 @@ export async function ensureTiles(plan: Plan, info: TileInfo, opts: GenerateOpti
     manifest = { version: TILES.version, tile: TILES.tile, widthPt: plan.widthPt, heightPt: plan.heightPt, levels: [] };
   }
 
+  if (opts.cancelled?.()) return manifest;
   const pdfjs = await loadPdfjs();
   const res = await fetch(convertFileSrc(info.pdf));
   if (!res.ok) throw new Error(`plan file unreadable (${res.status})`);
@@ -94,6 +105,7 @@ export async function ensureTiles(plan: Plan, info: TileInfo, opts: GenerateOpti
     for (const d of dims) {
       for (let by = 0; by < d.height; by += TILES.block) {
         for (let bx = 0; bx < d.width; bx += TILES.block) {
+          if (opts.cancelled?.()) return manifest;
           const block = document.createElement("canvas");
           block.width = Math.min(TILES.block, d.width - bx);
           block.height = Math.min(TILES.block, d.height - by);
