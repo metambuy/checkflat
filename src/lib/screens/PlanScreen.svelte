@@ -13,6 +13,7 @@
   import { cancel, confirm, moveDraft, noDraft, startAdding, tap, type DraftState } from "../viewer/draft";
   import { ensureTiles, isComplete, viewable, type Progress } from "../viewer/tiles";
   import { stageView } from "../viewer/manifest";
+  import { revertMove, withPosition } from "../viewer/pins";
   import type { Point } from "../viewer/coords";
   import { devlog } from "../devlog";
 
@@ -107,13 +108,15 @@
   }
 
   async function movePin(id: string, p: Point) {
-    const before = pins;
-    pins = pins.map((o) => (o.id === id ? { ...o, xNorm: p.x, yNorm: p.y } : o)); // optimistic
+    const old = pins.find((o) => o.id === id);
+    if (!old) return;
+    const previous = { x: old.xNorm, y: old.yNorm };
+    pins = withPosition(pins, id, p); // optimistic
     try {
       const saved = await api.movePin(id, p.x, p.y);
       pins = pins.map((o) => (o.id === id ? saved : o));
     } catch (e) {
-      pins = before;
+      pins = revertMove(pins, id, p, previous); // only this pin; the list may have changed meanwhile
       error = asAppError(e);
     }
   }
