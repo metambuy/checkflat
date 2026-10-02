@@ -3,6 +3,7 @@
   import { api, asAppError, ptToMm, type AppError, type Plan, type Project } from "../api";
   import { t } from "../i18n.svelte";
   import { go } from "../nav.svelte";
+  import { addressSaver, type SaveStatus } from "../addressSaver";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import ImportPlanDialog from "./ImportPlanDialog.svelte";
@@ -14,9 +15,7 @@
   let editingName = $state(false);
   let nameValue = $state("");
   let addressValue = $state("");
-  let addressStatus = $state<"idle" | "saving" | "saved" | "error">("idle");
-  let addressTimer: number | undefined;
-  let addressChain: Promise<void> = Promise.resolve();
+  let addressStatus = $state<SaveStatus>("idle");
   let importing = $state(false);
   let renamingPlan = $state<Plan | null>(null);
   let planTitle = $state("");
@@ -36,33 +35,16 @@
   async function saveName() {
     try { await api.renameProject(id, nameValue); editingName = false; await refresh(); } catch (e) { error = asAppError(e); }
   }
-  /** Address saves itself: ~800 ms after typing stops, on blur and on Enter. Saves run one at a
-   * time; the typed text is never overwritten by a reply, and stays in the field if saving fails. */
-  function saveAddress() {
-    clearTimeout(addressTimer);
-    addressChain = addressChain.then(async () => {
-      const value = addressValue.trim();
-      if (!project || value === project.address) {
-        if (addressStatus === "saving") addressStatus = "saved";
-        return;
-      }
-      addressStatus = "saving";
-      try {
-        project = await api.updateProjectAddress(id, value);
-        addressStatus = addressValue.trim() === project.address ? "saved" : "saving";
-        if (addressStatus === "saving") saveAddress(); // typed more while saving
-      } catch (e) {
-        addressStatus = "error";
-        error = asAppError(e);
-      }
-    });
-  }
-  function addressInput() {
-    addressStatus = "idle";
-    clearTimeout(addressTimer);
-    addressTimer = window.setTimeout(saveAddress, 800);
-  }
-  onMount(() => () => { clearTimeout(addressTimer); });
+  /** Address saves itself: ~800 ms after typing stops, on blur and on Enter (addressSaver.ts). */
+  const address = addressSaver({
+    get: () => addressValue,
+    stored: () => project?.address ?? null,
+    put: async (value) => { project = await api.updateProjectAddress(id, value); },
+    status: (s) => (addressStatus = s),
+    error: (e) => (error = asAppError(e)),
+  });
+  // Leaving the screen (Back, Escape, opening a plan) saves an edit still waiting for typing to stop.
+  onMount(() => () => { void address.flush(); });
   async function savePlanTitle() {
     if (!renamingPlan) return;
     try { await api.renamePlan(renamingPlan.id, planTitle); renamingPlan = null; await refresh(); } catch (e) { error = asAppError(e); }
@@ -99,9 +81,9 @@
         <input
           bind:value={addressValue}
           placeholder={t("project.address_placeholder")}
-          oninput={addressInput}
-          onblur={saveAddress}
-          onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveAddress(); } }}
+          oninput={address.input}
+          onblur={address.save}
+          onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); void address.save(); } }}
           autocomplete="off"
         />
       </label>
