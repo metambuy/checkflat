@@ -47,6 +47,7 @@
   "viewer.preparing": "Preparing the plan…",
   "viewer.preparing_detail": "This happens once per plan, after import ({percent}%). Keep the app open.",
   "viewer.detail_progress": "Preparing detail… {percent}%",
+  "viewer.detail_failed": "Detail could not be prepared.",
   "viewer.failed": "The plan could not be prepared for viewing.",
   "viewer.retry": "Try again",
   "viewer.fit": "Fit",

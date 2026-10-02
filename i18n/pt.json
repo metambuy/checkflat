@@ -47,6 +47,7 @@
   "viewer.preparing": "A preparar a planta…",
   "viewer.preparing_detail": "Isto acontece uma vez por planta, após a importação ({percent}%). Mantenha a app aberta.",
   "viewer.detail_progress": "A preparar o detalhe… {percent}%",
+  "viewer.detail_failed": "Não foi possível preparar o detalhe.",
   "viewer.failed": "Não foi possível preparar a planta para visualização.",
   "viewer.retry": "Tentar novamente",
   "viewer.fit": "Ajustar",

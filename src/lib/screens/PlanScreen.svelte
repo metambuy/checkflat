@@ -12,6 +12,7 @@
   import PlanViewer from "../viewer/PlanViewer.svelte";
   import { cancel, confirm, moveDraft, noDraft, startAdding, tap, type DraftState } from "../viewer/draft";
   import { ensureTiles, isComplete, viewable, type Progress } from "../viewer/tiles";
+  import { stageView } from "../viewer/manifest";
   import type { Point } from "../viewer/coords";
   import { devlog } from "../devlog";
 
@@ -33,7 +34,7 @@
 
   const selected = $derived(pins.find((p) => p.id === selectedId) ?? null);
   const percent = $derived(progress && progress.total ? Math.floor((progress.done / progress.total) * 100) : 0);
-  const generating = $derived(progress !== null && !genFailed);
+  const stage = $derived(stageView(manifest !== null, genFailed, progress !== null));
 
   async function prepare() {
     if (!plan || !info) return;
@@ -55,6 +56,7 @@
     } catch (e) {
       console.error("[plan] tile generation failed", e);
       genFailed = true;
+      progress = null;
       error = asAppError(e);
     }
   }
@@ -147,7 +149,7 @@
   <div class="body">
     <div class="stage">
       <div class="view">
-      {#if manifest && info}
+      {#if stage.main === "viewer" && manifest && info}
         <PlanViewer
           bind:this={viewer}
           {manifest}
@@ -162,8 +164,12 @@
           ondraftmove={(p) => (ds = moveDraft(ds, p))}
           onready={() => devlog(`plan ${planId}: first view ${(performance.now() - opened).toFixed(0)} ms after opening`)}
         />
-        {#if generating}<div class="chip">{t("viewer.detail_progress", { percent })}</div>{/if}
-      {:else if genFailed}
+        {#if stage.chip === "progress"}
+          <div class="chip">{t("viewer.detail_progress", { percent })}</div>
+        {:else if stage.chip === "retry"}
+          <div class="chip failed">{t("viewer.detail_failed")} <button onclick={prepare}>{t("viewer.retry")}</button></div>
+        {/if}
+      {:else if stage.main === "failed"}
         <div class="centre">
           <p>{t("viewer.failed")}</p>
           <button class="primary" onclick={prepare}>{t("viewer.retry")}</button>
@@ -239,6 +245,8 @@
   .bar { width: min(320px, 80%); height: 8px; background: #dde3ec; border-radius: 4px; overflow: hidden; }
   .bar div { height: 100%; background: #143c78; transition: width 0.2s; }
   .chip { position: absolute; left: 8px; top: 8px; background: rgba(20, 60, 120, 0.9); color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 12px; pointer-events: none; }
+  .chip.failed { display: flex; align-items: center; gap: 0.5rem; background: rgba(179, 38, 30, 0.95); pointer-events: auto; padding: 4px 4px 4px 10px; }
+  .chip.failed button { min-height: 0; padding: 4px 10px; font-size: 12px; }
   /* Below the viewer, not over it, so "fit" shows the whole plan. */
   .actions-bar {
     display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 12px calc(0.5rem + env(safe-area-inset-bottom));

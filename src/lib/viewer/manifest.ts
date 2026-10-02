@@ -22,3 +22,14 @@ export function isComplete(m: TileManifest | null, cfg: TileSettings): boolean {
 export function viewable(m: TileManifest | null, cfg: TileSettings): m is TileManifest {
   return compatible(m, cfg) && m.levels.length > 0;
 }
+
+/** What the plan stage shows. With at least one level the viewer stays up and generation state is
+ * a chip over it; a failure always offers Retry, with or without finished levels. */
+export interface StageView {
+  main: "viewer" | "failed" | "preparing";
+  chip: "progress" | "retry" | null;
+}
+export function stageView(hasLevels: boolean, failed: boolean, generating: boolean): StageView {
+  if (!hasLevels) return { main: failed ? "failed" : "preparing", chip: null };
+  return { main: "viewer", chip: failed ? "retry" : generating ? "progress" : null };
+}
