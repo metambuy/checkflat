@@ -1,5 +1,11 @@
 # Changelog
 
+## Sprint 2 — code review of PR #1, 2026-10-02 (D-019)
+- Tile generation: one run per plan (a new run waits for the previous one to stop and destroy its PDF.js document); Retry offered after any failure, also with some levels done; a cache from other generator settings is cleared before anything is shown.
+- Tile cache: listed levels verified on read (every tile present and non-empty, else regenerated from that level); tiles fsynced on write; `clear` removes the manifest first; manifest validation rejects zero sizes, bad page sizes and settings other than the configured ones; `write_tile` accepts only configured levels and their grid.
+- Project screen: a pending address edit is saved when leaving the screen; a refresh never overwrites unsaved or failed edits.
+- Plan screen: a failed pin move reverts only that pin; Back/Escape close the delete dialog first; the viewer ignores a 0×0 container.
+
 ## Sprint 2 — client feedback 2026-10-01 (D-018)
 - Pins: tap-to-place replaced by an **add-pin mode** — "+" in the action bar, the next tap places the draft and leaves the mode; a tap on the empty plan outside the mode does nothing; Back/Escape leaves the mode. Draft state-machine tests updated.
 - Core: ref assignment isolated in `assign_ref` (placeholder on `next_ref_no` until the Sprint 3 ref-format migration); no schema change.
