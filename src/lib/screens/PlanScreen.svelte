@@ -12,6 +12,7 @@
   import PlanViewer from "../viewer/PlanViewer.svelte";
   import { cancel, confirm, moveDraft, noDraft, startAdding, tap, type DraftState } from "../viewer/draft";
   import { ensureTiles, isComplete, viewable, type Progress } from "../viewer/tiles";
+  import { backStep } from "../viewer/back";
   import { stageView } from "../viewer/manifest";
   import { revertMove, withPosition } from "../viewer/pins";
   import type { Point } from "../viewer/coords";
@@ -64,9 +65,12 @@
 
   onMount(() => {
     setBackHandler(() => {
-      if ((ds.adding || ds.draft) && !ds.saving) { ds = cancel(ds); return true; }
-      if (selectedId) { selectedId = null; return true; }
-      return false;
+      switch (backStep({ dialog: toDelete !== null, adding: ds.adding, draft: ds.draft !== null, saving: ds.saving, selected: selectedId !== null })) {
+        case "dialog": toDelete = null; return true;
+        case "draft": ds = cancel(ds); return true;
+        case "selection": selectedId = null; return true;
+        default: return false;
+      }
     });
     (async () => {
       try {
@@ -81,6 +85,7 @@
     })();
     const key = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (e.defaultPrevented) return; // e.g. Escape already closed the delete dialog
       if (e.key === "Escape") back();
       else if (e.key === "+" || e.key === "=") viewer?.zoomBy(1.5);
       else if (e.key === "-") viewer?.zoomBy(1 / 1.5);
