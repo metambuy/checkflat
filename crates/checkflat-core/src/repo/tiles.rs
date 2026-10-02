@@ -1,6 +1,11 @@
 //! Tile cache of a plan (D-014): `plans/<plan_id>/tiles/<size>/<x>_<y>.webp` plus
 //! `manifest.json`, which the generator rewrites after each finished level (a level is usable
 //! once it is listed). Derived data: no DB column, excluded from archives, rebuilt when missing.
+//!
+//! Trust (review 2026-10-02): tiles are fsynced as they are written, so a level listed by the
+//! (fsynced, renamed) manifest has its data on disk; and a listed level is still checked on every
+//! read — each of its tile files must exist and be non-empty, else that level and the ones above
+//! it are dropped and regenerated.
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -74,10 +79,26 @@ fn tiles_dir(conn: &Connection, data_dir: &Path, plan_id: &str) -> Result<PathBu
     Ok(plan_tiles_dir(&plan.project_id, &plan.id).resolve(data_dir))
 }
 
+/// True when every tile file of the level exists and is non-empty.
+fn level_on_disk(dir: &Path, level: &TileLevel) -> bool {
+    let dir = dir.join(level.size.to_string());
+    (0..level.rows).all(|y| {
+        (0..level.cols).all(|x| std::fs::metadata(dir.join(format!("{x}_{y}.webp"))).is_ok_and(|m| m.is_file() && m.len() > 0))
+    })
+}
+
 fn read_manifest(dir: &Path) -> Option<TileManifest> {
     let text = std::fs::read_to_string(dir.join(MANIFEST)).ok()?;
     match serde_json::from_str::<TileManifest>(&text) {
-        Ok(m) if m.validate().is_ok() => Some(m),
+        Ok(mut m) if m.validate().is_ok() => {
+            // The generator resumes after the last listed level, so the levels stay a prefix:
+            // everything from the first damaged level on is dropped.
+            if let Some(bad) = m.levels.iter().position(|l| !level_on_disk(dir, l)) {
+                log::warn!("tile level {} in {} has missing or empty tiles; regenerating from it", m.levels[bad].size, dir.display());
+                m.levels.truncate(bad);
+            }
+            Some(m)
+        }
         _ => {
             log::warn!("ignoring unreadable tile manifest in {}", dir.display());
             None
@@ -96,8 +117,9 @@ pub fn info(conn: &Connection, data_dir: &Path, plan_id: &str) -> Result<TileInf
     })
 }
 
-/// Writes one WebP tile. Partial writes are harmless: a level only counts once the manifest
-/// lists it, and an unfinished level is regenerated.
+/// Writes one WebP tile and fsyncs it, so the manifest (written after the level's last tile) never
+/// lists data that a power loss could still drop. A level only counts once the manifest lists it,
+/// and an unfinished level is regenerated.
 pub fn write_tile(conn: &Connection, data_dir: &Path, plan_id: &str, size: u32, x: u32, y: u32, bytes: &[u8]) -> Result<()> {
     if size == 0 || size > MAX_LEVEL || x > 255 || y > 255 {
         return Err(CoreError::Validation(format!("tile {size}/{x}_{y} out of range")));
@@ -107,7 +129,9 @@ pub fn write_tile(conn: &Connection, data_dir: &Path, plan_id: &str, size: u32, 
     }
     let dir = tiles_dir(conn, data_dir, plan_id)?.join(size.to_string());
     std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join(format!("{x}_{y}.webp")), bytes)?;
+    let mut f = std::fs::File::create(dir.join(format!("{x}_{y}.webp")))?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
     Ok(())
 }
 
@@ -125,9 +149,16 @@ pub fn write_manifest(conn: &Connection, data_dir: &Path, plan_id: &str, manifes
     Ok(())
 }
 
-/// Removes the whole cache (generator settings changed, or a forced rebuild).
+/// Removes the whole cache (generator settings changed, or a forced rebuild). The manifest goes
+/// first, so a removal that fails partway cannot leave a manifest listing deleted tiles.
 pub fn clear(conn: &Connection, data_dir: &Path, plan_id: &str) -> Result<()> {
-    match std::fs::remove_dir_all(tiles_dir(conn, data_dir, plan_id)?) {
+    let dir = tiles_dir(conn, data_dir, plan_id)?;
+    match std::fs::remove_file(dir.join(MANIFEST)) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    match std::fs::remove_dir_all(dir) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),

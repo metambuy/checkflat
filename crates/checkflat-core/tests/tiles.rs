@@ -35,6 +35,16 @@ fn manifest(levels: &[(u32, u32, u32)]) -> TileManifest {
     }
 }
 
+/// Writes every tile of a level, as the generator does before listing it.
+fn write_level(conn: &Connection, data: &Path, plan_id: &str, m: &TileManifest, idx: usize) {
+    let l = &m.levels[idx];
+    for y in 0..l.rows {
+        for x in 0..l.cols {
+            tiles::write_tile(conn, data, plan_id, l.size, x, y, &webp()).unwrap();
+        }
+    }
+}
+
 #[test]
 fn tiles_and_manifest_round_trip() {
     let dir = tempfile::tempdir().unwrap();
@@ -46,9 +56,9 @@ fn tiles_and_manifest_round_trip() {
     assert_eq!(Path::new(&info.dir), tiles_dir);
     assert_eq!(Path::new(&info.pdf), plan.file_path.resolve(data));
 
-    tiles::write_tile(&conn, data, &plan.id, 1024, 1, 0, &webp()).unwrap();
-    assert!(tiles_dir.join("1024/1_0.webp").is_file());
     let m = manifest(&[(1024, 1024, 724)]);
+    write_level(&conn, data, &plan.id, &m, 0);
+    assert!(tiles_dir.join("1024/1_0.webp").is_file());
     tiles::write_manifest(&conn, data, &plan.id, &m).unwrap();
     assert_eq!(tiles::info(&conn, data, &plan.id).unwrap().manifest, Some(m));
     assert!(!tiles_dir.join("manifest.json.tmp").exists());
@@ -77,6 +87,33 @@ fn rejects_bad_tiles_and_manifests() {
     std::fs::create_dir_all(&tiles_dir).unwrap();
     std::fs::write(tiles_dir.join("manifest.json"), "{ truncated").unwrap();
     assert_eq!(tiles::info(&conn, data, &plan.id).unwrap().manifest, None);
+}
+
+#[test]
+fn a_listed_level_with_missing_or_empty_tiles_is_dropped_on_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let (conn, plan) = setup(data);
+    let tiles_dir = paths::plan_tiles_dir(&plan.project_id, &plan.id).resolve(data);
+    let m = manifest(&[(1024, 1024, 724), (2048, 2048, 1447), (4096, 4096, 2894)]);
+    for i in 0..3 {
+        write_level(&conn, data, &plan.id, &m, i);
+    }
+    tiles::write_manifest(&conn, data, &plan.id, &m).unwrap();
+    let levels = |conn: &Connection| -> Vec<u32> {
+        tiles::info(conn, data, &plan.id).unwrap().manifest.unwrap().levels.iter().map(|l| l.size).collect()
+    };
+    assert_eq!(levels(&conn), [1024, 2048, 4096]);
+
+    // Zero-length tile (power loss before the data reached the disk): that level is dropped.
+    std::fs::write(tiles_dir.join("4096/7_5.webp"), b"").unwrap();
+    assert_eq!(levels(&conn), [1024, 2048]);
+    // Missing tile in a lower level: it and every level above it are dropped (levels stay a prefix).
+    std::fs::remove_file(tiles_dir.join("2048/3_2.webp")).unwrap();
+    assert_eq!(levels(&conn), [1024]);
+    // A manifest left behind without any tiles reads as "no finished level".
+    std::fs::remove_dir_all(tiles_dir.join("1024")).unwrap();
+    assert_eq!(levels(&conn), [] as [u32; 0]);
 }
 
 #[test]
