@@ -117,6 +117,64 @@ fn a_listed_level_with_missing_or_empty_tiles_is_dropped_on_read() {
 }
 
 #[test]
+fn manifest_validation_rejects_zero_sizes_bad_page_size_and_unknown_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let (conn, plan) = setup(data);
+    let good = manifest(&[(1024, 1024, 724)]);
+    write_level(&conn, data, &plan.id, &good, 0);
+    let rejected = |m: &TileManifest| matches!(tiles::write_manifest(&conn, data, &plan.id, m), Err(CoreError::Validation(_)));
+    let with = |f: &dyn Fn(&mut TileManifest)| {
+        let mut m = good.clone();
+        f(&mut m);
+        m
+    };
+    assert!(!rejected(&good));
+    // A zero-sized level (cols/rows consistent with it) and a non-positive or non-finite page size.
+    assert!(rejected(&with(&|m| m.levels[0] = TileLevel { size: 1024, width: 0, height: 724, cols: 0, rows: 2 })));
+    assert!(rejected(&with(&|m| m.levels[0] = TileLevel { size: 1024, width: 1024, height: 0, cols: 2, rows: 0 })));
+    assert!(rejected(&with(&|m| m.width_pt = 0.0)));
+    assert!(rejected(&with(&|m| m.height_pt = -1684.0)));
+    assert!(rejected(&with(&|m| m.width_pt = f64::NAN)));
+    assert!(rejected(&with(&|m| m.height_pt = f64::INFINITY)));
+    // Settings other than the configured ones: version, tile size, a level that is not next in LEVELS.
+    assert!(rejected(&with(&|m| m.version = tiles::VERSION + 1)));
+    assert!(rejected(&with(&|m| m.tile = 256)));
+    assert!(rejected(&manifest(&[(2048, 2048, 1447)])));
+    assert!(rejected(&manifest(&[(1024, 1024, 724), (2048, 2048, 1447), (4096, 4096, 2894), (8192, 8192, 5787), (16384, 16384, 11574)])));
+
+    // The same on disk reads as "no manifest", so the UI rebuilds instead of showing NaN geometry.
+    let tiles_dir = paths::plan_tiles_dir(&plan.project_id, &plan.id).resolve(data);
+    let json = serde_json::to_string(&with(&|m| m.width_pt = 0.0)).unwrap();
+    std::fs::write(tiles_dir.join("manifest.json"), json).unwrap();
+    assert_eq!(tiles::info(&conn, data, &plan.id).unwrap().manifest, None);
+}
+
+#[test]
+fn write_tile_accepts_only_configured_levels_and_their_grid() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let (conn, plan) = setup(data);
+    let rejected = |size, x, y| matches!(tiles::write_tile(&conn, data, &plan.id, size, x, y, &webp()), Err(CoreError::Validation(_)));
+    assert!(rejected(512, 0, 0), "not a level");
+    assert!(rejected(1000, 0, 0), "not a level");
+    assert!(rejected(16384, 0, 0), "not a level");
+    assert!(rejected(1024, 2, 0), "1024 has a 2 × 2 grid at most");
+    assert!(rejected(1024, 0, 2));
+    assert!(!rejected(1024, 1, 1));
+    assert!(!rejected(8192, 15, 15));
+    assert!(rejected(8192, 16, 0));
+}
+
+/// `tiles::{VERSION, TILE, LEVELS}` mirror the generator's `TILES` in the frontend.
+#[test]
+fn core_tile_settings_match_the_frontend_config() {
+    let config = include_str!("../../../src/lib/viewer/config.ts");
+    let expected = format!("version: {}, levels: {:?}, tile: {},", tiles::VERSION, tiles::LEVELS, tiles::TILE);
+    assert!(config.contains(&expected), "config.ts TILES does not contain `{expected}`");
+}
+
+#[test]
 fn deleting_the_plan_removes_its_tile_cache() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path();

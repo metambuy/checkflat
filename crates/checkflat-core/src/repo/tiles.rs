@@ -17,8 +17,13 @@ use crate::repo::plans;
 use crate::{CoreError, Result};
 
 pub const MANIFEST: &str = "manifest.json";
-/// Largest accepted level (long side, px) and tile file; generous upper bounds, not the config.
-const MAX_LEVEL: u32 = 16384;
+/// Generator settings, mirrored from `src/lib/viewer/config.ts` (`TILES`); a test keeps the two in
+/// step. A manifest with any other version, tile size or level sizes is not accepted: on disk it
+/// reads as "no manifest" and the UI rebuilds the cache.
+pub const VERSION: u32 = 1;
+pub const TILE: u32 = 512;
+pub const LEVELS: [u32; 4] = [1024, 2048, 4096, 8192];
+/// Largest accepted tile file; a generous upper bound.
 const MAX_TILE_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,15 +53,27 @@ pub struct TileManifest {
 impl TileManifest {
     fn validate(&self) -> Result<()> {
         let bad = |why: String| Err(CoreError::Validation(format!("tile manifest: {why}")));
-        if !(64..=2048).contains(&self.tile) {
+        if self.version != VERSION {
+            return bad(format!("version {}", self.version));
+        }
+        if self.tile != TILE {
             return bad(format!("tile size {}", self.tile));
         }
-        let mut prev = 0;
-        for l in &self.levels {
-            if l.size <= prev || l.size > MAX_LEVEL {
-                return bad(format!("level {} out of order or too large", l.size));
+        let positive = |v: f64| v.is_finite() && v > 0.0;
+        if !positive(self.width_pt) || !positive(self.height_pt) {
+            return bad(format!("page size {} × {} pt", self.width_pt, self.height_pt));
+        }
+        if self.levels.len() > LEVELS.len() {
+            return bad(format!("{} levels", self.levels.len()));
+        }
+        // Finished levels are a prefix of LEVELS (the generator resumes after the last one).
+        for (l, &size) in self.levels.iter().zip(&LEVELS) {
+            if l.size != size {
+                return bad(format!("level {} where {size} is expected", l.size));
             }
-            prev = l.size;
+            if l.width == 0 || l.height == 0 {
+                return bad(format!("level {} is empty", l.size));
+            }
             if l.width.max(l.height) > l.size + 1 || l.cols != l.width.div_ceil(self.tile) || l.rows != l.height.div_ceil(self.tile) {
                 return bad(format!("level {} dimensions inconsistent", l.size));
             }
@@ -121,7 +138,8 @@ pub fn info(conn: &Connection, data_dir: &Path, plan_id: &str) -> Result<TileInf
 /// lists data that a power loss could still drop. A level only counts once the manifest lists it,
 /// and an unfinished level is regenerated.
 pub fn write_tile(conn: &Connection, data_dir: &Path, plan_id: &str, size: u32, x: u32, y: u32, bytes: &[u8]) -> Result<()> {
-    if size == 0 || size > MAX_LEVEL || x > 255 || y > 255 {
+    // Only a configured level, and only a tile inside that level's grid.
+    if !LEVELS.contains(&size) || x >= size.div_ceil(TILE) || y >= size.div_ceil(TILE) {
         return Err(CoreError::Validation(format!("tile {size}/{x}_{y} out of range")));
     }
     if bytes.len() > MAX_TILE_BYTES || bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {

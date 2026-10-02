@@ -65,7 +65,9 @@ async function generate(plan: Plan, opts: GenerateOptions): Promise<TileManifest
     manifest = info.manifest;
     if (manifest.levels.length === TILES.levels.length) return manifest;
   } else {
-    if (info.manifest) await api.clearPlanTiles(plan.id);
+    // Also when the backend reports no manifest: it reads one made with other settings, or a
+    // damaged one, as none, and its tiles may still be on disk.
+    await api.clearPlanTiles(plan.id);
     manifest = { version: TILES.version, tile: TILES.tile, widthPt: plan.widthPt, heightPt: plan.heightPt, levels: [] };
   }
 
