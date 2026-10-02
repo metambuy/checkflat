@@ -24,7 +24,7 @@
   async function refresh() {
     try {
       project = await api.getProject(id);
-      if (addressStatus !== "saving") addressValue = project.address;
+      if (address.mayReplace()) addressValue = project.address; // never over unsaved or failed edits
       plans = await api.listPlans(id);
     } catch (e) {
       error = asAppError(e);

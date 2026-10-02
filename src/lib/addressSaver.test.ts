@@ -73,3 +73,34 @@ test("a failed save keeps the text and reports the error", async () => {
   assert.equal(f.statuses.at(-1), "error");
   assert.equal(f.errors, 1);
 });
+
+test("a refresh never replaces unsaved or failed edits", async () => {
+  const { f, saver, type } = field("Rua A");
+  assert.equal(saver.mayReplace(), true, "untouched field follows the backend");
+
+  type("Rua B"); // within the debounce
+  assert.equal(saver.mayReplace(), false, "unsaved edit");
+  const saving = saver.save();
+  assert.equal(saver.mayReplace(), false, "save in flight");
+  await saving;
+  assert.equal(saver.mayReplace(), true, "saved: the field equals the stored value");
+
+  f.fail = true;
+  type("Rua C");
+  await saver.save();
+  assert.equal(f.statuses.at(-1), "error");
+  assert.equal(saver.mayReplace(), false, "failed edit stays in the field");
+  // e.g. a plan is renamed: refresh() loads the project; the text is kept and saved on the next try.
+  f.fail = false;
+  await saver.save();
+  assert.equal(f.stored, "Rua C");
+  assert.equal(saver.mayReplace(), true);
+});
+
+test("typing the stored value back makes the field clean again", async () => {
+  const { saver, type } = field("Rua A");
+  type("Rua B");
+  type("Rua A");
+  await saver.flush();
+  assert.equal(saver.mayReplace(), true);
+});

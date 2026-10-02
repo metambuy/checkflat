@@ -19,6 +19,8 @@ export function addressSaver(o: AddressSaverOptions) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let chain: Promise<void> = Promise.resolve();
   let status: SaveStatus = "idle";
+  // The field holds text the user typed that is not stored (yet): waiting, saving, or failed.
+  let dirty = false;
   const set = (s: SaveStatus) => {
     status = s;
     o.status(s);
@@ -31,14 +33,17 @@ export function addressSaver(o: AddressSaverOptions) {
       const value = o.get().trim();
       const stored = o.stored();
       if (stored === null || value === stored) {
+        if (stored !== null) dirty = false;
         if (status === "saving") set("saved");
         return;
       }
       set("saving");
       try {
         await o.put(value);
-        if (o.get().trim() === o.stored()) set("saved");
-        else void save(); // typed more while saving
+        if (o.get().trim() === o.stored()) {
+          dirty = false;
+          set("saved");
+        } else void save(); // typed more while saving
       } catch (e) {
         set("error");
         o.error(e);
@@ -50,9 +55,15 @@ export function addressSaver(o: AddressSaverOptions) {
   return {
     /** The user typed: save once typing stops. */
     input() {
+      dirty = true;
       set("idle");
       clearTimeout(timer);
       timer = setTimeout(save, o.delayMs ?? 800);
+    },
+    /** May a value loaded from the backend replace the field's text? Not while the field holds an
+     * edit that is unsaved, being saved, or whose save failed. */
+    mayReplace(): boolean {
+      return !dirty;
     },
     /** Blur or Enter: save now. */
     save,
