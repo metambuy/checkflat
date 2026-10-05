@@ -7,6 +7,7 @@
   import LanguageSwitch from "./lib/components/LanguageSwitch.svelte";
   import ProjectsScreen from "./lib/screens/ProjectsScreen.svelte";
   import ProjectScreen from "./lib/screens/ProjectScreen.svelte";
+  import ProjectSettingsScreen from "./lib/screens/ProjectSettingsScreen.svelte";
   import PlanScreen from "./lib/screens/PlanScreen.svelte";
   // Dev screen only in spike builds (see lib/devlog.ts). Kept inline so the bundler folds it and a
   // normal release bundle drops the Dev chunk (an imported constant is not folded).
@@ -51,6 +52,8 @@
     <ProjectsScreen />
   {:else if s.name === "project"}
     {#key s.id}<ProjectScreen id={s.id} />{/key}
+  {:else if s.name === "projectSettings"}
+    {#key s.id}<ProjectSettingsScreen id={s.id} />{/key}
   {:else if s.name === "plan"}
     {#key s.planId}<PlanScreen projectId={s.projectId} planId={s.planId} />{/key}
   {:else if devScreen}

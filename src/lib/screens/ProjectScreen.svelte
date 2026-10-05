@@ -74,6 +74,7 @@
         <div class="row">
           <h1 class="grow">{project.name}</h1>
           <button onclick={() => { nameValue = project!.name; editingName = true; }}>{t("common.rename")}</button>
+          <button onclick={() => go({ name: "projectSettings", id })}>{t("common.settings")}</button>
         </div>
       {/if}
       <label>
