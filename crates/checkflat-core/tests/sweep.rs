@@ -94,6 +94,33 @@ fn quarantines_orphans_and_leaves_everything_else_alone() {
 }
 
 #[test]
+fn plan_cache_dirs_kept_for_live_plans_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = db::open(&data.join("checkflat.db")).unwrap().conn;
+    let live = projects::create(&conn, "Live", "").unwrap();
+    let plan_id = ids::new_id();
+    insert_plan(&conn, &plan_id, &live.id);
+    let plans_dir = paths::project_dir(&live.id).resolve(data).join("plans");
+    touch(&plans_dir.join(format!("{plan_id}.pdf")), b"%PDF");
+    let kept = plans_dir.join(format!("{plan_id}/tiles/1024/0_0.webp"));
+    touch(&kept, b"RIFF");
+    let dead_plan = ids::new_id();
+    touch(&plans_dir.join(format!("{dead_plan}/tiles/1024/0_0.webp")), b"RIFF");
+    touch(&plans_dir.join("not-a-uuid/x"), b"x");
+
+    let report = sweep_orphans(&conn, data, false).unwrap();
+    assert_eq!(report.quarantined, vec![format!("projects/{}/plans/{dead_plan}", live.id)]);
+    assert!(kept.exists(), "live plan cache kept");
+    assert!(!plans_dir.join(&dead_plan).exists());
+    assert!(plans_dir.join("not-a-uuid/x").exists(), "non-uuid dir left alone");
+    assert!(report.warnings.is_empty(), "no warnings for plan dirs: {:?}", report.warnings);
+    let trash: Vec<_> = fs::read_dir(data.join("projects/.trash")).unwrap().map(|e| e.unwrap().path()).collect();
+    assert_eq!(trash.len(), 1);
+    assert!(trash[0].join("plans").join(&dead_plan).join("tiles/1024/0_0.webp").exists());
+}
+
+#[test]
 fn fresh_db_never_sweeps() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path();

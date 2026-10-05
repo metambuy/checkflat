@@ -11,9 +11,10 @@
 </script>
 
 {#if open}
-  <!-- Click on the backdrop (not the dialog) cancels; Escape cancels. -->
+  <!-- Click on the backdrop (not the dialog) cancels; Escape cancels and is marked handled, so a
+       screen's own Escape handler (Back) does not act on the same key press. -->
   <div class="backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) oncancel(); }}>
-    <div class="dialog" role="dialog" aria-modal="true" tabindex="-1" onkeydown={(e) => { if (e.key === "Escape") oncancel(); }}>
+    <div class="dialog" role="dialog" aria-modal="true" tabindex="-1" onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); oncancel(); } }}>
       <p>{message}</p>
       <div class="actions">
         <button onclick={oncancel}>{t("common.cancel")}</button>

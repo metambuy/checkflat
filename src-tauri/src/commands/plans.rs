@@ -89,3 +89,8 @@ pub async fn rename_plan(app: AppHandle, id: String, title: String) -> AppResult
 pub async fn delete_plan(app: AppHandle, id: String) -> AppResult<()> {
     run_db(app, move |c, dir| plans::delete(c, dir, &id)).await
 }
+
+#[tauri::command]
+pub async fn get_plan(app: AppHandle, id: String) -> AppResult<Plan> {
+    run_db(app, move |c, _| plans::get(c, &id)).await
+}

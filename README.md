@@ -32,12 +32,12 @@ AVDs used for the spikes (create with `avdmanager create avd -n <name> -k "syste
 `hw.camera.back=virtualscene` gives the camera intent a fake 3D scene, so photo capture can be tested without hardware.
 
 ## Client data
-`Examples/` (client plans) and `public/spike/` are gitignored and must never be committed. For Spike A copy the A1 plan locally:
+`Examples/` (client plans) is gitignored and must never be committed; `public/spike/` stays ignored as a safety net. Plans are tested the way the client uses them: import through the app. On an emulator or phone, put the PDF where the Android picker finds it:
 
 ```sh
-scripts/copy-spike-plan.sh            # Examples/c-JS00-AM01.pdf -> public/spike/plan-a1.pdf
+adb push Examples/c-JS00-AM01.pdf /sdcard/Download/   # then Import plan → ☰ → Downloads
 ```
-Without it the Plan tab shows "no spike plan bundled". CI builds without it.
+The first open renders the plan's tile pyramid once (D-014); afterwards it opens instantly.
 
 ## Data directory
 Tauri app data dir (`com.checkflat.app`): `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>` before migrations), `projects/<project_id>/plans/<plan_id>.pdf`, `projects/.trash/` (quarantine, purged after 7 days), `tmp/` (import staging). All DB paths are relative to this dir. macOS dev: `~/Library/Application Support/com.checkflat.app`.

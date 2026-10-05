@@ -46,6 +46,43 @@ export interface StagedPlan {
   info: PdfInfo;
 }
 
+export interface Observation {
+  id: string;
+  projectId: string;
+  planId: string;
+  refNo: number;
+  xNorm: number;
+  yNorm: number;
+  description: string;
+  createdVisitId: string | null;
+  resolvedVisitId: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface TileLevel {
+  /** Long side in px; the level's directory name. */
+  size: number;
+  width: number;
+  height: number;
+  cols: number;
+  rows: number;
+}
+export interface TileManifest {
+  version: number;
+  tile: number;
+  widthPt: number;
+  heightPt: number;
+  /** Finished levels, smallest first. */
+  levels: TileLevel[];
+}
+export interface TileInfo {
+  /** Absolute paths for convertFileSrc (asset protocol, scope $APPDATA/projects/**). */
+  dir: string;
+  pdf: string;
+  manifest: TileManifest | null;
+}
+
 export function isAppError(e: unknown): e is AppError {
   return typeof e === "object" && e !== null && "code" in e && "message" in e;
 }
@@ -66,6 +103,18 @@ export const api = {
   discardStagedPlan: (token: string) => invoke<void>("discard_staged_plan", { token }),
   renamePlan: (id: string, title: string) => invoke<Plan>("rename_plan", { id, title }),
   deletePlan: (id: string) => invoke<void>("delete_plan", { id }),
+  getPlan: (id: string) => invoke<Plan>("get_plan", { id }),
+  listPins: (planId: string) => invoke<Observation[]>("list_pins", { planId }),
+  /** Confirms a draft pin: takes the next ref number. */
+  createPin: (planId: string, x: number, y: number) => invoke<Observation>("create_pin", { planId, x, y }),
+  movePin: (id: string, x: number, y: number) => invoke<Observation>("move_pin", { id, x, y }),
+  deletePin: (id: string) => invoke<void>("delete_pin", { id }),
+  planTilesInfo: (planId: string) => invoke<TileInfo>("plan_tiles_info", { planId }),
+  /** `data` is base64 WebP (Android IPC would send a Uint8Array as a JSON number array). */
+  writePlanTile: (planId: string, size: number, x: number, y: number, data: string) =>
+    invoke<void>("write_plan_tile", { planId, size, x, y, data }),
+  writePlanTileManifest: (planId: string, manifest: TileManifest) => invoke<void>("write_plan_tile_manifest", { planId, manifest }),
+  clearPlanTiles: (planId: string) => invoke<void>("clear_plan_tiles", { planId }),
 };
 
 export const ptToMm = (pt: number) => Math.round((pt / 72) * 25.4);

@@ -37,3 +37,22 @@ pub struct Plan {
     pub height_pt: f64,
     pub created_at: String,
 }
+
+/// An observation. In Sprint 2 only the pin part is edited (position, ref number); description,
+/// photos and visits follow in Sprints 3 and 7.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Observation {
+    pub id: String,
+    pub project_id: String,
+    pub plan_id: String,
+    pub ref_no: i64,
+    pub x_norm: f64,
+    pub y_norm: f64,
+    pub description: String,
+    pub created_visit_id: Option<String>,
+    pub resolved_visit_id: Option<String>,
+    pub resolved_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}

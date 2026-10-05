@@ -3,6 +3,7 @@
   import { api, asAppError, ptToMm, type AppError, type Plan, type Project } from "../api";
   import { t } from "../i18n.svelte";
   import { go } from "../nav.svelte";
+  import { addressSaver, type SaveStatus } from "../addressSaver";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import ImportPlanDialog from "./ImportPlanDialog.svelte";
@@ -14,6 +15,7 @@
   let editingName = $state(false);
   let nameValue = $state("");
   let addressValue = $state("");
+  let addressStatus = $state<SaveStatus>("idle");
   let importing = $state(false);
   let renamingPlan = $state<Plan | null>(null);
   let planTitle = $state("");
@@ -22,7 +24,7 @@
   async function refresh() {
     try {
       project = await api.getProject(id);
-      addressValue = project.address;
+      if (address.mayReplace()) addressValue = project.address; // never over unsaved or failed edits
       plans = await api.listPlans(id);
     } catch (e) {
       error = asAppError(e);
@@ -33,10 +35,16 @@
   async function saveName() {
     try { await api.renameProject(id, nameValue); editingName = false; await refresh(); } catch (e) { error = asAppError(e); }
   }
-  async function saveAddress() {
-    if (!project || addressValue.trim() === project.address) return;
-    try { await api.updateProjectAddress(id, addressValue); await refresh(); } catch (e) { error = asAppError(e); }
-  }
+  /** Address saves itself: ~800 ms after typing stops, on blur and on Enter (addressSaver.ts). */
+  const address = addressSaver({
+    get: () => addressValue,
+    stored: () => project?.address ?? null,
+    put: async (value) => { project = await api.updateProjectAddress(id, value); },
+    status: (s) => (addressStatus = s),
+    error: (e) => (error = asAppError(e)),
+  });
+  // Leaving the screen (Back, Escape, opening a plan) saves an edit still waiting for typing to stop.
+  onMount(() => () => { void address.flush(); });
   async function savePlanTitle() {
     if (!renamingPlan) return;
     try { await api.renamePlan(renamingPlan.id, planTitle); renamingPlan = null; await refresh(); } catch (e) { error = asAppError(e); }
@@ -68,8 +76,16 @@
           <button onclick={() => { nameValue = project!.name; editingName = true; }}>{t("common.rename")}</button>
         </div>
       {/if}
-      <label>{t("projects.address")}
-        <input bind:value={addressValue} placeholder={t("project.address_placeholder")} onblur={saveAddress} autocomplete="off" />
+      <label>
+        <span class="row">{t("projects.address")}<span class="status {addressStatus}" aria-live="polite">{addressStatus === "saving" ? t("common.saving") : addressStatus === "saved" ? `✓ ${t("common.saved")}` : addressStatus === "error" ? t("common.save_failed") : ""}</span></span>
+        <input
+          bind:value={addressValue}
+          placeholder={t("project.address_placeholder")}
+          oninput={address.input}
+          onblur={address.save}
+          onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); void address.save(); } }}
+          autocomplete="off"
+        />
       </label>
     </header>
 
@@ -92,10 +108,10 @@
                 </div>
               </form>
             {:else}
-              <div class="grow">
+              <button class="plain grow" onclick={() => go({ name: "plan", projectId: id, planId: plan.id })}>
                 <strong>{plan.title}</strong>
-                <div class="muted">{t("plan.size", { width: ptToMm(plan.widthPt), height: ptToMm(plan.heightPt) })}</div>
-              </div>
+                <span class="muted">{t("plan.size", { width: ptToMm(plan.widthPt), height: ptToMm(plan.heightPt) })}</span>
+              </button>
               <button onclick={() => { renamingPlan = plan; planTitle = plan.title; }}>{t("common.rename")}</button>
               <button class="danger" onclick={() => (planToDelete = plan)}>{t("common.delete")}</button>
             {/if}
@@ -108,7 +124,7 @@
   {/if}
 
   {#if importing}
-    <ImportPlanDialog projectId={id} onimported={() => { importing = false; refresh(); }} onclose={() => (importing = false)} />
+    <ImportPlanDialog projectId={id} onimported={(p) => { importing = false; go({ name: "plan", projectId: id, planId: p.id }); }} onclose={() => (importing = false)} />
   {/if}
   <ConfirmDialog
     open={planToDelete !== null}
@@ -119,3 +135,9 @@
     oncancel={() => (planToDelete = null)}
   />
 </section>
+
+<style>
+  .status { font-size: 12px; margin-left: 0.5rem; color: #666; }
+  .status.saved { color: #2e7d32; }
+  .status.error { color: #b3261e; }
+</style>

@@ -8,7 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
 use crate::models::Plan;
-use crate::paths::{plan_file, staging_file, RelPath, PLANS_DIR, TMP_DIR};
+use crate::paths::{plan_dir, plan_file, staging_file, RelPath, PLANS_DIR, TMP_DIR};
 use crate::pdf::{self, PdfInfo};
 use crate::{clock, ids, CoreError, Result};
 
@@ -162,7 +162,7 @@ pub fn rename(conn: &Connection, id: &str, title: &str) -> Result<Plan> {
     get(conn, id)
 }
 
-/// Delete a plan and its file. Refused while observations reference it (the NO ACTION FK is the
+/// Delete a plan, its file and its tile cache. Refused while observations reference it (the NO ACTION FK is the
 /// safety net behind this explicit check).
 pub fn delete(conn: &Connection, data_dir: &Path, id: &str) -> Result<()> {
     let plan = get(conn, id)?;
@@ -175,6 +175,12 @@ pub fn delete(conn: &Connection, data_dir: &Path, id: &str) -> Result<()> {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => log::warn!("plan {id} deleted but its file could not be removed: {e}"),
+    }
+    // Tile cache (D-014); a leftover is quarantined by the next sweep.
+    match std::fs::remove_dir_all(plan_dir(&plan.project_id, id).resolve(data_dir)) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => log::warn!("plan {id} deleted but its tile cache could not be removed: {e}"),
     }
     Ok(())
 }
