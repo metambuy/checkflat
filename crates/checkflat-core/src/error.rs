@@ -22,6 +22,14 @@ pub enum CoreError {
     Unreadable(String),
     #[error("plan has {count} observation(s); delete or move them first")]
     PlanHasObservations { count: i64 },
+    #[error("invalid ref template: {0}")]
+    InvalidTemplate(String),
+    #[error("the sequence scope cannot change once a number has been issued")]
+    ScopeLocked,
+    #[error("fraction has issued numbers ({count} observation(s) use it); it cannot be deleted")]
+    FractionInUse { count: i64 },
+    #[error("a fraction is required when numbers run per fraction")]
+    FractionRequired,
 }
 
 impl CoreError {
@@ -37,6 +45,10 @@ impl CoreError {
             CoreError::MultiPage { .. } => "multi_page",
             CoreError::Unreadable(_) => "unreadable_pdf",
             CoreError::PlanHasObservations { .. } => "plan_has_observations",
+            CoreError::InvalidTemplate(_) => "invalid_template",
+            CoreError::ScopeLocked => "scope_locked",
+            CoreError::FractionInUse { .. } => "fraction_in_use",
+            CoreError::FractionRequired => "fraction_required",
         }
     }
 }

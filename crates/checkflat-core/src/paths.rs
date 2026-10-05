@@ -2,7 +2,7 @@
 //!
 //! Layout: `projects/<project_id>/plans/<plan_id>.pdf`, its tile cache
 //! `projects/<project_id>/plans/<plan_id>/tiles/` (D-014), `projects/<project_id>/photos/<photo_id>.jpg`,
-//! `projects/<project_id>/logo.<ext>`, `tmp/<token>.pdf` (import staging), `projects/.trash/` (quarantine),
+//! `tmp/<token>.pdf` (import staging), `projects/.trash/` (quarantine),
 //! `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>`) at the root. The database only ever stores [`RelPath`]s.
 use std::collections::HashSet;
 use std::fmt;
@@ -132,8 +132,8 @@ const STAGING_MAX_AGE: Duration = Duration::from_secs(24 * 3600);
 const TRASH_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 
 /// Startup maintenance. Quarantines (moves to `projects/.trash/`) rather than deletes:
-/// (a) project dirs with no `project` row, (b) files under live projects' `plans/`, `photos/`
-/// and `logo.*` that no row references, and UUID-named `plans/<plan_id>/` cache dirs whose plan
+/// (a) project dirs with no `project` row, (b) files under live projects' `plans/` and `photos/`
+/// that no row references, and UUID-named `plans/<plan_id>/` cache dirs whose plan
 /// row is gone; removes (c) staging files older than 24 h and
 /// (d) quarantine entries older than 7 days. Skipped entirely when the database was created
 /// by this process (`freshly_created`): an empty DB must never wipe user files.
@@ -169,11 +169,7 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
         })
         .collect();
     let mut referenced: HashSet<String> = HashSet::new();
-    for sql in [
-        "SELECT file_path FROM plan",
-        "SELECT file_path FROM photo",
-        "SELECT logo_path FROM project WHERE logo_path IS NOT NULL",
-    ] {
+    for sql in ["SELECT file_path FROM plan", "SELECT file_path FROM photo"] {
         for s in query_strings(conn, sql)? {
             match RelPath::new(&s) {
                 Ok(p) => {
@@ -210,7 +206,7 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
                 quarantine(&path, &dest, &rel_project, &mut report);
                 continue;
             }
-            // Live project: unreferenced files in plans/, photos/ and logo.* at the root.
+            // Live project: unreferenced files in plans/ and photos/.
             let mut candidates: Vec<(PathBuf, String)> = Vec::new();
             for sub in [PLANS_DIR, PHOTOS_DIR] {
                 if let Ok(files) = std::fs::read_dir(path.join(sub)) {
@@ -228,14 +224,6 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
                             continue;
                         }
                         candidates.push((f.path(), rel));
-                    }
-                }
-            }
-            if let Ok(files) = std::fs::read_dir(&path) {
-                for f in files.flatten() {
-                    let fname = f.file_name().to_string_lossy().into_owned();
-                    if fname.starts_with("logo.") {
-                        candidates.push((f.path(), format!("{rel_project}/{fname}")));
                     }
                 }
             }

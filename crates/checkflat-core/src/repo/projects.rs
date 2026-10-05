@@ -3,7 +3,9 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::models::{Project, ProjectSummary};
-use crate::paths::{project_dir, RelPath};
+use crate::paths::project_dir;
+use crate::refs::{self, Scope, Template};
+use crate::repo::{fractions, observations};
 use crate::{clock, ids, CoreError, Result};
 
 fn clean_name(name: &str) -> Result<String> {
@@ -14,14 +16,23 @@ fn clean_name(name: &str) -> Result<String> {
     Ok(n.to_string())
 }
 
+const SELECT_PROJECT: &str = "SELECT p.*,
+    (p.next_seq > 1 OR EXISTS (SELECT 1 FROM fraction f WHERE f.project_id = p.id AND f.next_seq > 1)) AS scope_locked,
+    (SELECT count(*) FROM observation o WHERE o.project_id = p.id) AS observation_count
+    FROM project p WHERE p.id = ?1";
+
 fn row_to_project(r: &Row<'_>) -> rusqlite::Result<Project> {
-    let logo: Option<String> = r.get("logo_path")?;
+    let scope: String = r.get("seq_scope")?;
     Ok(Project {
         id: r.get("id")?,
         name: r.get("name")?,
         address: r.get("address")?,
-        logo_path: logo.and_then(|s| RelPath::new(&s).ok()),
-        next_ref_no: r.get("next_ref_no")?,
+        code: r.get("code")?,
+        ref_template: r.get("ref_template")?,
+        seq_scope: Scope::parse(&scope).unwrap_or(Scope::Project), // CHECK constraint keeps it valid
+        next_seq: r.get("next_seq")?,
+        scope_locked: r.get("scope_locked")?,
+        observation_count: r.get("observation_count")?,
         created_at: r.get("created_at")?,
         updated_at: r.get("updated_at")?,
     })
@@ -47,7 +58,7 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectSummary>> {
 }
 
 pub fn get(conn: &Connection, id: &str) -> Result<Project> {
-    conn.query_row("SELECT * FROM project WHERE id = ?1", [id], row_to_project)
+    conn.query_row(SELECT_PROJECT, [id], row_to_project)
         .optional()?
         .ok_or(CoreError::NotFound)
 }
@@ -57,8 +68,7 @@ pub fn create(conn: &Connection, name: &str, address: &str) -> Result<Project> {
     let now = clock::now_iso();
     let id = ids::new_id();
     conn.execute(
-        "INSERT INTO project(id, name, address, next_ref_no, created_at, updated_at)
-         VALUES (?1, ?2, ?3, 1, ?4, ?4)",
+        "INSERT INTO project(id, name, address, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
         params![id, name, address.trim(), now],
     )?;
     get(conn, &id)
@@ -85,6 +95,50 @@ pub fn update_address(conn: &Connection, id: &str, address: &str) -> Result<Proj
         return Err(CoreError::NotFound);
     }
     get(conn, id)
+}
+
+/// Validated ref settings: the code, the parsed template and the scope, as the UI submits them.
+struct RefSettings {
+    code: String,
+    template: Template,
+    scope: Scope,
+}
+
+fn check_ref_settings(code: &str, template: &str, scope: Scope) -> Result<RefSettings> {
+    let code = refs::validate_code(code)?;
+    let template = Template::parse(template)?;
+    template.validate_for(scope)?;
+    Ok(RefSettings { code, template, scope })
+}
+
+/// Project code, ref template and sequence scope (project settings screen). The scope cannot
+/// change once a number has been issued (`scope_locked`): `observation.seq_key` is derived from
+/// it and is never rewritten.
+pub fn update_ref_settings(conn: &Connection, id: &str, code: &str, template: &str, scope: Scope) -> Result<Project> {
+    let s = check_ref_settings(code, template, scope)?;
+    let tx = conn.unchecked_transaction()?;
+    let current = get(&tx, id)?;
+    if s.scope != current.seq_scope && current.scope_locked {
+        return Err(CoreError::ScopeLocked);
+    }
+    tx.execute(
+        "UPDATE project SET code = ?2, ref_template = ?3, seq_scope = ?4, updated_at = ?5 WHERE id = ?1",
+        params![id, s.code, template.trim(), s.scope.as_str(), clock::now_iso()],
+    )?;
+    tx.commit()?;
+    get(conn, id)
+}
+
+/// The ref the next observation in `fraction` would get under the given (unsaved) settings —
+/// validated like [`update_ref_settings`], nothing written. Drives the live preview.
+pub fn preview_ref(conn: &Connection, id: &str, code: &str, template: &str, scope: Scope, fraction: &str) -> Result<String> {
+    let s = check_ref_settings(code, template, scope)?;
+    let typed = refs::validate_code(fraction)?;
+    let project = get(conn, id)?;
+    // An existing fraction renders with its stored spelling, as the save would store it.
+    let fraction = fractions::find(conn, id, &typed)?.map_or(typed, |f| f.code);
+    let seq = observations::peek_seq(conn, &project, scope, &fraction)?;
+    Ok(s.template.render(&s.code, &fraction, seq))
 }
 
 /// Deletes the project row (cascading to plans, visits, observations, photos) and then its

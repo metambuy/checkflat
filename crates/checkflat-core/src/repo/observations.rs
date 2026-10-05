@@ -1,10 +1,12 @@
-//! Observations as pins (Sprint 2). A draft pin exists only in the UI; [`create_pin`] is the
-//! confirm step and the only place a ref number is taken, so a cancelled draft never leaves a gap.
-//! How the number is chosen lives in [`assign_ref`] alone.
+//! Observations as pins. A draft pin exists only in the UI; [`create_observation`] is the save of
+//! the observation sheet and the only place a sequence number is taken, so a cancelled draft never
+//! leaves a gap. How the number is chosen lives in [`assign_ref`] alone (D-020): per project or
+//! per fraction, from a counter that only ever grows, so deleted numbers are never reused.
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
-use crate::models::Observation;
-use crate::repo::plans;
+use crate::models::{Observation, Project};
+use crate::refs::{self, Scope, Template};
+use crate::repo::{fractions, plans, projects};
 use crate::{clock, ids, CoreError, Result};
 
 fn check_pos(x: f64, y: f64) -> Result<()> {
@@ -16,12 +18,30 @@ fn check_pos(x: f64, y: f64) -> Result<()> {
     }
 }
 
+/// Observation columns joined with the project's ref settings, so every row renders its ref.
+const SELECT: &str = "SELECT o.*, p.code AS p_code, p.ref_template AS p_template, p.seq_scope AS p_scope
+    FROM observation o JOIN project p ON p.id = o.project_id";
+
 fn row_to_observation(r: &Row<'_>) -> rusqlite::Result<Observation> {
+    let code: String = r.get("p_code")?;
+    let template: String = r.get("p_template")?;
+    let scope: String = r.get("p_scope")?;
+    let fraction: String = r.get("fraction")?;
+    let seq: i64 = r.get("seq")?;
+    // Stored templates are validated on save; a bad one must still never break a read.
+    let template = Template::parse(&template).unwrap_or_else(|e| {
+        log::warn!("project {}: stored ref template rejected ({e}); using the default", code);
+        Template::parse(refs::DEFAULT_TEMPLATE).expect("default template parses")
+    });
+    let scope = Scope::parse(&scope).unwrap_or(Scope::Project);
     Ok(Observation {
         id: r.get("id")?,
         project_id: r.get("project_id")?,
         plan_id: r.get("plan_id")?,
-        ref_no: r.get("ref_no")?,
+        display_ref: template.render(&code, &fraction, seq),
+        marker: refs::marker(scope, &template, &fraction, seq),
+        fraction,
+        seq,
         x_norm: r.get("x_norm")?,
         y_norm: r.get("y_norm")?,
         description: r.get("description")?,
@@ -34,49 +54,94 @@ fn row_to_observation(r: &Row<'_>) -> rusqlite::Result<Observation> {
 }
 
 pub fn get(conn: &Connection, id: &str) -> Result<Observation> {
-    conn.query_row("SELECT * FROM observation WHERE id = ?1", [id], row_to_observation)
+    conn.query_row(&format!("{SELECT} WHERE o.id = ?1"), [id], row_to_observation)
         .optional()?
         .ok_or(CoreError::NotFound)
 }
 
+/// Pins of a plan in display order: by fraction (when numbers run per fraction), then sequence.
 pub fn list_for_plan(conn: &Connection, plan_id: &str) -> Result<Vec<Observation>> {
-    let mut stmt = conn.prepare("SELECT * FROM observation WHERE plan_id = ?1 ORDER BY ref_no")?;
+    let mut stmt = conn.prepare(&format!("{SELECT} WHERE o.plan_id = ?1 ORDER BY o.seq_key, o.seq"))?;
     let rows = stmt.query_map([plan_id], row_to_observation)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// Ref assignment, isolated so the Sprint 3 migration swaps only this function (D-018: per-project
-/// ref template with project code, fraction and sequence). Until then it is a placeholder: the
-/// project's continuous counter. Takes the next number and advances `project.next_ref_no`; the
-/// number is never below an existing ref + 1, so a ref edited upwards cannot collide. Must run
-/// inside the transaction that inserts the observation.
-fn assign_ref(tx: &Connection, project_id: &str, now: &str) -> Result<i64> {
-    let ref_no: i64 = tx.query_row(
-        "SELECT max(p.next_ref_no, COALESCE((SELECT max(ref_no) + 1 FROM observation WHERE project_id = p.id), 1))
-         FROM project p WHERE p.id = ?1",
-        [project_id],
+/// The number [`assign_ref`] would give next for `fraction` under `scope` (read-only; the
+/// fraction need not exist yet). The number is never below an existing seq + 1 in the same scope,
+/// so a seq edited upwards or an imported row cannot collide.
+pub fn peek_seq(conn: &Connection, project: &Project, scope: Scope, fraction: &str) -> Result<i64> {
+    let seq_key = scope.seq_key(fraction);
+    let counter = match scope {
+        Scope::Project => project.next_seq,
+        Scope::Fraction => {
+            if fraction.is_empty() {
+                return Err(CoreError::FractionRequired);
+            }
+            fractions::find(conn, &project.id, fraction)?.map_or(1, |f| f.next_seq)
+        }
+    };
+    let highest: i64 = conn.query_row(
+        "SELECT COALESCE(max(seq) + 1, 1) FROM observation WHERE project_id = ?1 AND seq_key = ?2",
+        params![project.id, seq_key],
         |r| r.get(0),
     )?;
-    tx.execute(
-        "UPDATE project SET next_ref_no = ?2, updated_at = ?3 WHERE id = ?1",
-        params![project_id, ref_no + 1, now],
-    )?;
-    Ok(ref_no)
+    Ok(counter.max(highest))
 }
 
-/// Confirm a draft pin: in one transaction assign the ref ([`assign_ref`]) and insert the
-/// observation. On any error nothing changes.
-pub fn create_pin(conn: &Connection, plan_id: &str, x: f64, y: f64) -> Result<Observation> {
+/// Takes the next sequence number for `fraction` under the project's scope and advances that
+/// scope's counter (`project.next_seq` or `fraction.next_seq`). The only writer of `seq`,
+/// `seq_key` and the counters; must run inside the transaction that inserts the observation.
+/// Returns `(seq, seq_key)`.
+fn assign_ref(tx: &Connection, project: &Project, fraction: &str, now: &str) -> Result<(i64, String)> {
+    let scope = project.seq_scope;
+    let seq = peek_seq(tx, project, scope, fraction)?;
+    match scope {
+        Scope::Project => {
+            tx.execute(
+                "UPDATE project SET next_seq = ?2, updated_at = ?3 WHERE id = ?1",
+                params![project.id, seq + 1, now],
+            )?;
+        }
+        Scope::Fraction => {
+            let n = tx.execute(
+                "UPDATE fraction SET next_seq = ?3 WHERE project_id = ?1 AND code = ?2",
+                params![project.id, fraction, seq + 1],
+            )?;
+            if n != 1 {
+                return Err(CoreError::Validation(format!("fraction {fraction} does not exist")));
+            }
+        }
+    }
+    Ok((seq, scope.seq_key(fraction).to_string()))
+}
+
+/// Save of the observation sheet: in one transaction add the fraction if it is new
+/// ([`fractions::ensure`], whose canonical code is what gets stored), assign the ref
+/// ([`assign_ref`]) and insert the observation. On any error nothing changes.
+pub fn create_observation(
+    conn: &Connection,
+    plan_id: &str,
+    x: f64,
+    y: f64,
+    fraction: &str,
+    description: &str,
+) -> Result<Observation> {
     check_pos(x, y)?;
+    let fraction = refs::validate_code(fraction)?;
     let plan = plans::get(conn, plan_id)?;
     let id = ids::new_id();
     let now = clock::now_iso();
     let tx = conn.unchecked_transaction()?;
-    let ref_no = assign_ref(&tx, &plan.project_id, &now)?;
+    let project = projects::get(&tx, &plan.project_id)?;
+    if project.seq_scope == Scope::Fraction && fraction.is_empty() {
+        return Err(CoreError::FractionRequired);
+    }
+    let fraction = if fraction.is_empty() { fraction } else { fractions::ensure(&tx, &project.id, &fraction)?.code };
+    let (seq, seq_key) = assign_ref(&tx, &project, &fraction, &now)?;
     tx.execute(
-        "INSERT INTO observation(id, project_id, plan_id, ref_no, x_norm, y_norm, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-        params![id, plan.project_id, plan_id, ref_no, x, y, now],
+        "INSERT INTO observation(id, project_id, plan_id, fraction, seq, seq_key, x_norm, y_norm, description, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+        params![id, project.id, plan_id, fraction, seq, seq_key, x, y, description.trim(), now],
     )?;
     tx.commit()?;
     get(conn, &id)
@@ -94,7 +159,7 @@ pub fn move_pin(conn: &Connection, id: &str, x: f64, y: f64) -> Result<Observati
     get(conn, id)
 }
 
-/// Deletes a confirmed pin (photos cascade in the DB). Its ref number is not reused.
+/// Deletes a confirmed pin (photos cascade in the DB). Its number is not reused.
 pub fn delete_pin(conn: &Connection, id: &str) -> Result<()> {
     let n = conn.execute("DELETE FROM observation WHERE id = ?1", [id])?;
     if n == 0 {

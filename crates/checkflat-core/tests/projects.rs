@@ -1,6 +1,7 @@
 mod common;
 
-use checkflat_core::repo::{projects, settings};
+use checkflat_core::refs::Scope;
+use checkflat_core::repo::{fractions, projects, settings};
 use checkflat_core::{db, paths, CoreError};
 use common::*;
 
@@ -13,7 +14,10 @@ fn crud_and_disk_cleanup() {
     let p = projects::create(&conn, "  Obra X  ", " Rua A, 1 ").unwrap();
     assert_eq!(p.name, "Obra X");
     assert_eq!(p.address, "Rua A, 1");
-    assert_eq!(p.next_ref_no, 1);
+    assert_eq!(p.next_seq, 1);
+    assert_eq!((p.code.as_str(), p.ref_template.as_str()), ("", "{PROJ}-{FRAC}-{SEQ:2}"));
+    assert_eq!(p.seq_scope, Scope::Project);
+    assert!(!p.scope_locked);
     assert!(paths::RelPath::new(&p.id).is_ok());
 
     assert!(matches!(projects::create(&conn, "   ", ""), Err(CoreError::Validation(_))));
@@ -60,16 +64,27 @@ fn cascades_set_null_and_unique() {
     insert_observation(&conn, "o1", &p.id, "plan1", 1, Some("v1")).unwrap();
     insert_photo(&conn, "ph1", "o1", Some("v1"), &p.id);
 
-    // UNIQUE(project_id, ref_no)
+    // UNIQUE(project_id, seq_key, seq): same number in the project scope, and in one fraction
+    // whatever the case; a different fraction is a different sequence.
     assert!(insert_observation(&conn, "o2", &p.id, "plan1", 1, None).is_err());
-    // CHECK on x/y
-    assert!(conn
-        .execute(
-            "INSERT INTO observation(id, project_id, plan_id, ref_no, x_norm, y_norm, created_at, updated_at)
-             VALUES ('o3', ?1, 'plan1', 3, 1.5, 0.5, 'a', 'a')",
-            [&p.id]
-        )
-        .is_err());
+    insert_observation_in(&conn, "oa", &p.id, "plan1", "A", 1, None).unwrap();
+    assert!(insert_observation_in(&conn, "oa2", &p.id, "plan1", "a", 1, None).is_err());
+    insert_observation_in(&conn, "ob", &p.id, "plan1", "B", 1, None).unwrap();
+    // CHECK: seq_key is '' or the fraction; seq >= 1; x/y in 0..1
+    for sql in [
+        "INSERT INTO observation(id, project_id, plan_id, fraction, seq, seq_key, x_norm, y_norm, created_at, updated_at)
+         VALUES ('o3', ?1, 'plan1', 'A', 9, 'B', 0.5, 0.5, 'a', 'a')",
+        "INSERT INTO observation(id, project_id, plan_id, fraction, seq, seq_key, x_norm, y_norm, created_at, updated_at)
+         VALUES ('o3', ?1, 'plan1', '', 0, '', 0.5, 0.5, 'a', 'a')",
+        "INSERT INTO observation(id, project_id, plan_id, seq, x_norm, y_norm, created_at, updated_at)
+         VALUES ('o3', ?1, 'plan1', 3, 1.5, 0.5, 'a', 'a')",
+    ] {
+        assert!(conn.execute(sql, [&p.id]).is_err(), "{sql}");
+    }
+    // Fraction codes are unique per project, case-insensitively.
+    fractions::add(&conn, &p.id, "pc").unwrap();
+    assert_eq!(fractions::add(&conn, &p.id, "PC").unwrap().code, "pc");
+    assert_eq!(fractions::list(&conn, &p.id).unwrap().len(), 1);
 
     // Deleting a visit keeps the observation and photo, nulls the references.
     conn.execute("DELETE FROM visit WHERE id = 'v1'", []).unwrap();
@@ -83,7 +98,7 @@ fn cascades_set_null_and_unique() {
     // checked at statement end, so cascade order does not matter).
     let dir = tempfile::tempdir().unwrap();
     projects::delete(&conn, dir.path(), &p.id).unwrap();
-    for t in ["plan", "visit", "observation", "photo"] {
+    for t in ["plan", "visit", "observation", "photo", "fraction"] {
         assert_eq!(count(&conn, t), 0, "{t} emptied by cascade");
     }
 }
