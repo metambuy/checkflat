@@ -80,6 +80,11 @@ fn fraction_scope_numbers_each_fraction_independently() {
     assert!(matches!(create(&conn, &plan, ""), Err(CoreError::FractionRequired)));
     assert!(matches!(create(&conn, &plan, "  "), Err(CoreError::FractionRequired)));
     assert_eq!(observations::list_for_plan(&conn, &plan.id).unwrap().len(), 3);
+    // Issuing a number still marks the project as worked on (the projects list orders by it),
+    // even though the project counter is not the one that moved.
+    conn.execute("UPDATE project SET updated_at = '2000-01-01T00:00:00.000Z' WHERE id = ?1", [&plan.project_id]).unwrap();
+    let b = create(&conn, &plan, "B").unwrap();
+    assert_eq!(projects::get(&conn, &plan.project_id).unwrap().updated_at, b.created_at, "project.updated_at bumped in fraction scope");
 }
 
 #[test]

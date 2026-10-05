@@ -91,7 +91,8 @@ pub fn peek_seq(conn: &Connection, project: &Project, scope: Scope, fraction: &s
 /// Takes the next sequence number for `fraction` under the project's scope and advances that
 /// scope's counter (`project.next_seq` or `fraction.next_seq`). The only writer of `seq`,
 /// `seq_key` and the counters; must run inside the transaction that inserts the observation.
-/// Returns `(seq, seq_key)`.
+/// Issuing a number touches `project.updated_at` in both scopes (the projects list is ordered
+/// by it). Returns `(seq, seq_key)`.
 fn assign_ref(tx: &Connection, project: &Project, fraction: &str, now: &str) -> Result<(i64, String)> {
     let scope = project.seq_scope;
     let seq = peek_seq(tx, project, scope, fraction)?;
@@ -110,6 +111,7 @@ fn assign_ref(tx: &Connection, project: &Project, fraction: &str, now: &str) -> 
             if n != 1 {
                 return Err(CoreError::Validation(format!("fraction {fraction} does not exist")));
             }
+            tx.execute("UPDATE project SET updated_at = ?2 WHERE id = ?1", params![project.id, now])?;
         }
     }
     Ok((seq, scope.seq_key(fraction).to_string()))

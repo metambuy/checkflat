@@ -177,6 +177,9 @@ impl Template {
                 }
                 out.push_str(&value);
                 emitted = true;
+                // An empty token directly before this one had nothing to drop; the literal that
+                // follows belongs to this (emitted) token and must stay.
+                skip_next_lit = false;
             }
         }
         if let Some(p) = pending {
@@ -238,6 +241,19 @@ mod tests {
         assert_eq!(render("{FRAC}.{SEQ:1}", "", "A", 3), "A.3");
         assert_eq!(render("{SEQ:2}", "", "", 123), "123", "never truncated");
         assert_eq!(render("{SEQ:6}", "", "", 1), "000001");
+    }
+
+    #[test]
+    fn adjacent_tokens_keep_the_literal_after_the_emitted_one() {
+        // An empty token followed directly by a non-empty one must not swallow the literal
+        // after the non-empty one.
+        assert_eq!(render("{PROJ}{FRAC}-{SEQ:2}", "", "A", 3), "A-03");
+        assert_eq!(render("{FRAC}{PROJ}-{SEQ:2}", "LAM", "", 3), "LAM-03");
+        assert_eq!(render("{PROJ}{FRAC}-{SEQ:2}", "LAM", "A", 3), "LAMA-03");
+        assert_eq!(render("{PROJ}{FRAC}-{SEQ:2}", "", "", 3), "03");
+        // Unchanged: no literal between the tokens, nothing to keep.
+        assert_eq!(render("{PROJ}-{FRAC}{SEQ:2}", "", "A", 3), "A03");
+        assert_eq!(render("{PROJ}-{FRAC}{SEQ:2}", "LAM", "", 3), "LAM03");
     }
 
     #[test]
