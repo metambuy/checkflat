@@ -27,7 +27,7 @@ impl From<checkflat_core::CoreError> for AppError {
         let mut out = AppError::new(e.code(), e.to_string());
         match &e {
             C::MultiPage { pages } => out.pages = Some(*pages),
-            C::PlanHasObservations { count } => out.count = Some(*count),
+            C::PlanHasObservations { count } | C::FractionInUse { count } => out.count = Some(*count),
             _ => {}
         }
         out
