@@ -9,6 +9,10 @@
       case "unreadable_pdf": return t("import.unreadable_pdf");
       case "source_unreadable": return t("import.source_unreadable");
       case "plan_has_observations": return t("plan.delete_blocked", { count: e.count ?? "?" });
+      case "invalid_template": return t("error.invalid_template", { message: e.message.replace(/^invalid ref template: /, "") });
+      case "scope_locked": return t("error.scope_locked");
+      case "fraction_in_use": return t("error.fraction_in_use");
+      case "fraction_required": return t("error.fraction_required");
       case "validation": return t("error.validation");
       case "not_found": return t("error.not_found");
       case "db": return t("error.db");

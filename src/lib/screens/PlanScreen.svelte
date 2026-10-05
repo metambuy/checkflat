@@ -1,14 +1,16 @@
 <script lang="ts">
   // One plan: tile viewer + pins. "+" enters add-pin mode; the next tap places a draft pin (not
-  // persisted, no number) and leaves the mode; Confirm calls create_pin, which takes the ref
-  // number; Cancel/Back leaves the mode or discards the draft (no gap). The tile
-  // pyramid is generated here, in the foreground, the first time the plan is opened (D-014).
+  // persisted, no number) and leaves the mode; "Next" opens the observation sheet, whose Save
+  // calls create_observation, which takes the number; Cancel/Back closes the sheet, then leaves
+  // the mode or discards the draft (no gap). The tile pyramid is generated here, in the
+  // foreground, the first time the plan is opened (D-014).
   import { onMount } from "svelte";
   import { api, asAppError, type AppError, type Observation, type Plan, type TileInfo, type TileManifest } from "../api";
   import { t } from "../i18n.svelte";
   import { back, setBackHandler } from "../nav.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
+  import ObservationSheet from "./ObservationSheet.svelte";
   import PlanViewer from "../viewer/PlanViewer.svelte";
   import { cancel, confirm, moveDraft, noDraft, startAdding, tap, type DraftState } from "../viewer/draft";
   import { ensureTiles, isComplete, viewable, type Progress } from "../viewer/tiles";
@@ -30,6 +32,8 @@
   let genFailed = $state(false);
   let error = $state<AppError | null>(null);
   let toDelete = $state<Observation | null>(null);
+  let sheet = $state(false);
+  let sheetError = $state<AppError | null>(null);
   let viewer = $state<PlanViewer | null>(null);
   let leaving = false;
   const opened = performance.now();
@@ -65,8 +69,9 @@
 
   onMount(() => {
     setBackHandler(() => {
-      switch (backStep({ dialog: toDelete !== null, adding: ds.adding, draft: ds.draft !== null, saving: ds.saving, selected: selectedId !== null })) {
+      switch (backStep({ dialog: toDelete !== null, sheet, adding: ds.adding, draft: ds.draft !== null, saving: ds.saving, selected: selectedId !== null })) {
         case "dialog": toDelete = null; return true;
+        case "sheet": closeSheet(); return true;
         case "draft": ds = cancel(ds); return true;
         case "selection": selectedId = null; return true;
         default: return false;
@@ -84,7 +89,7 @@
       }
     })();
     const key = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
       if (e.defaultPrevented) return; // e.g. Escape already closed the delete dialog
       if (e.key === "Escape") back();
       else if (e.key === "+" || e.key === "=") viewer?.zoomBy(1.5);
@@ -103,12 +108,24 @@
     ds = startAdding(ds);
   }
 
-  async function confirmDraft() {
+  function closeSheet() {
+    sheet = false;
+    sheetError = null;
+  }
+
+  /** Save of the sheet: one create_observation for the draft; the list is re-read in the
+   * server's order. On failure the sheet stays open with the error. */
+  async function saveObservation(fraction: string, description: string) {
+    sheetError = null;
     try {
-      const pin = await confirm(() => ds, (s) => (ds = s), (p) => api.createPin(planId, p.x, p.y));
-      if (pin) pins = [...pins, pin].sort((a, b) => a.refNo - b.refNo);
+      const pin = await confirm(() => ds, (s) => (ds = s), (p) => api.createObservation(planId, p.x, p.y, fraction, description));
+      if (!pin) return;
+      closeSheet();
+      selectedId = pin.id;
+      pins = await api.listPins(planId);
     } catch (e) {
-      error = asAppError(e);
+      if (sheet) sheetError = asAppError(e);
+      else error = asAppError(e);
     }
   }
 
@@ -198,12 +215,12 @@
           {#if ds.draft}
             <span class="grow">{t("pin.draft")}</span>
             <button onclick={() => (ds = cancel(ds))} disabled={ds.saving}>{t("common.cancel")}</button>
-            <button class="primary" onclick={confirmDraft} disabled={ds.saving}>{t("common.confirm")}</button>
+            <button class="primary" onclick={() => (sheet = true)} disabled={ds.saving}>{t("common.next")}</button>
           {:else if ds.adding}
             <span class="grow">{t("viewer.tap_hint")}</span>
             <button onclick={() => (ds = cancel(ds))}>{t("common.cancel")}</button>
           {:else if selected}
-            <span class="grow">{t("pin.label", { ref: selected.refNo })}</span>
+            <span class="grow">{t("pin.label", { ref: selected.ref })}</span>
             <button class="danger" onclick={() => (toDelete = selected)}>{t("common.delete")}</button>
             <button onclick={() => (selectedId = null)}>{t("common.close")}</button>
             <button class="primary add" onclick={startAdd} aria-label={t("pin.add")} title={t("pin.add")}>+</button>
@@ -223,16 +240,19 @@
       {:else}
         <ul class="list">
           {#each pins as pin (pin.id)}
-            <li><button class="pin-row" class:active={pin.id === selectedId} onclick={() => selectFromList(pin)}>{t("pin.label", { ref: pin.refNo })}</button></li>
+            <li><button class="pin-row" class:active={pin.id === selectedId} onclick={() => selectFromList(pin)}>{t("pin.label", { ref: pin.ref })}</button></li>
           {/each}
         </ul>
       {/if}
     </aside>
   </div>
 
+  {#if sheet && ds.draft}
+    <ObservationSheet {projectId} saving={ds.saving} error={sheetError} onsave={saveObservation} oncancel={closeSheet} ondismiss={() => (sheetError = null)} />
+  {/if}
   <ConfirmDialog
     open={toDelete !== null}
-    message={toDelete ? t("pin.delete_confirm", { ref: toDelete.refNo }) : ""}
+    message={toDelete ? t("pin.delete_confirm", { ref: toDelete.ref }) : ""}
     confirmLabel={t("common.delete")}
     danger
     onconfirm={deletePin}

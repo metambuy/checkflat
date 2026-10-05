@@ -225,8 +225,8 @@
         class:dragging={drag?.id === pin.id}
         style={`left:${s.x}px;top:${s.y}px`}
         onpointerdown={(e) => pinPointer(e, pin.id, { x: pin.xNorm, y: pin.yNorm })}
-        aria-label={String(pin.refNo)}
-      ><span class="mark"></span><span class="num">{pin.refNo}</span></button>
+        aria-label={pin.ref}
+      ><span class="mark"></span><span class="num" class:long={pin.marker.length > 2}>{pin.marker}</span></button>
     {/each}
     {#if draft}
       {@const s = offsetOf(posOf("draft", draft))}
@@ -253,6 +253,8 @@
     background: #c62828; border: 2px solid #fff; outline: 1px solid rgba(0, 0, 0, 0.35); /* no box-shadow: costly to raster for 50 pins */
   }
   .num { position: absolute; left: 0; top: 6px; width: 34px; line-height: 34px; text-align: center; color: #fff; font-weight: 700; font-size: 13px; }
+  /* Per-fraction markers ("PC-01") must still fit the 34 px head. */
+  .num.long { font-size: 9px; letter-spacing: -0.3px; }
   .pin.selected .mark { background: #143c78; outline: 3px solid #ffd54f; }
   .pin.draft .mark { background: #fff; border: 2px dashed #c62828; }
   .pin.draft .num { color: #c62828; font-size: 22px; }
