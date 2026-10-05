@@ -108,7 +108,7 @@ Note: observations belong to the project (not one visit) so they can carry over;
   - **Ref format migration (D-018)**, once the client confirms the exact format: `project.code`, per-project template (`{PROJ}` `{FRAC}` `{SEQ:n}`), sequence scope per fraction or per project, per-project fraction list, `observation.fraction` + `observation.seq`; drop `project.next_ref_no` and `UNIQUE(project_id, ref_no)`; swap `assign_ref`.
   - Camera plugin follow-ups deferred from the Sprint 0 code review (see decisions D-007): (a) persist the pending capture path so a photo survives the app being killed behind the camera; (b) self-contained FileProvider (own subclass, `file_paths.xml` and `<provider>` in the plugin manifest) instead of relying on the Tauri app template; (c) ~~decide `assetProtocol` vs base64 for showing photos~~ resolved in Sprint 2: asset protocol, scope `projects/**` (D-015).
 - **Sprint 4**: photo annotation (ellipse, arrow, freehand); observation list + jump-to-pin.
-  - Backlog from Sprint 2: pins overlap at fit when many are close together (smaller markers or clustering at low zoom); the import dialog still says "Choose a PDF…" for the ~3 s the picker result takes on EMUI (show "Reading PDF…" as soon as the picker closes).
+  - Backlog from Sprint 2: pins overlap at fit when many are close together (smaller markers or clustering at low zoom); the import dialog still says "Choose a PDF…" for the ~3 s the picker result takes on EMUI (show "Reading PDF…" as soon as the picker closes). Tile cache: one fsync pass per level in `write_manifest` instead of one per tile (D-019: ≈ +10 s on the A1 plan's one-off preparation on the P30).
 - *Exit*: full field workflow offline.
 
 ### M3 — Report (first usable)
