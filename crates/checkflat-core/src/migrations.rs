@@ -183,8 +183,10 @@ pub fn apply_with(conn: &mut Connection, db_path: Option<&Path>, migrations: &Mi
     }
     conn.pragma_update(None, "foreign_keys", "OFF")?;
     let result = migrations.to_latest(conn);
-    conn.pragma_update(None, "foreign_keys", "ON")?;
+    // Restore first; a migration error is the one worth reporting if both fail.
+    let restored = conn.pragma_update(None, "foreign_keys", "ON");
     result?;
+    restored?;
     Ok(())
 }
 

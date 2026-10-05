@@ -29,15 +29,12 @@ pub fn get(conn: &Connection, id: &str) -> Result<Fraction> {
         .ok_or(CoreError::NotFound)
 }
 
-/// The project's fraction with this code (case-insensitive), if any.
+/// The project's fraction with this code, compared case-insensitively in Rust (full Unicode:
+/// `Ático` = `ático`; SQLite's NOCASE only folds ASCII, so the DB constraint alone is not enough).
+/// The list is per project and short, so it is scanned rather than queried.
 pub fn find(conn: &Connection, project_id: &str, code: &str) -> Result<Option<Fraction>> {
-    Ok(conn
-        .query_row(
-            "SELECT * FROM fraction WHERE project_id = ?1 AND code = ?2",
-            params![project_id, code],
-            row_to_fraction,
-        )
-        .optional()?)
+    let wanted = code.to_lowercase();
+    Ok(list(conn, project_id)?.into_iter().find(|f| f.code.to_lowercase() == wanted))
 }
 
 /// Insert-or-get: typing a new fraction adds it. Returns the stored row, so callers use its

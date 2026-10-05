@@ -289,3 +289,33 @@ fn preview_matches_the_next_assigned_ref() {
     assert_eq!(projects::preview_ref(&conn, &plan.project_id, "LAM", TEMPLATE, Scope::Fraction, "a").unwrap(), "LAM-A-02", "stored spelling");
     assert_eq!(projects::preview_ref(&conn, &plan.project_id, "LAM", TEMPLATE, Scope::Fraction, "PC").unwrap(), "LAM-PC-01");
 }
+
+#[test]
+fn fraction_codes_fold_case_beyond_ascii() {
+    // SQLite NOCASE folds ASCII only; the core compares Unicode-case-insensitively in Rust.
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup_fraction_scope(dir.path());
+    let first = create(&conn, &plan, "Ático").unwrap();
+    let second = create(&conn, &plan, "ático").unwrap();
+    assert_eq!((first.display_ref.as_str(), second.display_ref.as_str()), ("LAM-Ático-01", "LAM-Ático-02"));
+    assert_eq!(second.fraction, "Ático", "stored canonical spelling");
+    assert_eq!(fractions::add(&conn, &plan.project_id, "ÁTICO").unwrap().code, "Ático");
+    assert_eq!(fractions::list(&conn, &plan.project_id).unwrap().len(), 1, "one fraction row");
+    assert_eq!(
+        projects::preview_ref(&conn, &plan.project_id, "LAM", TEMPLATE, Scope::Fraction, "ÁTICO").unwrap(),
+        "LAM-Ático-03"
+    );
+}
+
+#[test]
+fn ref_settings_are_trimmed_once_and_stored_as_validated() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let pid = plan.project_id.clone();
+    let p = projects::update_ref_settings(&conn, &pid, " LAM ", "  {PROJ}-{SEQ:2}  ", Scope::Project).unwrap();
+    assert_eq!((p.code.as_str(), p.ref_template.as_str()), ("LAM", "{PROJ}-{SEQ:2}"));
+    let preview = projects::preview_ref(&conn, &pid, " LAM ", "  {PROJ}-{SEQ:2}  ", Scope::Project, "").unwrap();
+    assert_eq!(preview, "LAM-01");
+    assert_eq!(create(&conn, &plan, "").unwrap().display_ref, "LAM-01", "preview and stored value agree");
+    assert!(matches!(projects::update_ref_settings(&conn, &pid, "LAM", "   ", Scope::Project), Err(CoreError::InvalidTemplate(_))));
+}

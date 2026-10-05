@@ -97,18 +97,21 @@ pub fn update_address(conn: &Connection, id: &str, address: &str) -> Result<Proj
     get(conn, id)
 }
 
-/// Validated ref settings: the code, the parsed template and the scope, as the UI submits them.
+/// Validated ref settings: the code, the parsed template (and its trimmed source — the string
+/// that gets stored, so the preview and the saved value never differ) and the scope.
 struct RefSettings {
     code: String,
     template: Template,
+    template_src: String,
     scope: Scope,
 }
 
 fn check_ref_settings(code: &str, template: &str, scope: Scope) -> Result<RefSettings> {
     let code = refs::validate_code(code)?;
-    let template = Template::parse(template)?;
+    let template_src = template.trim().to_string();
+    let template = Template::parse(&template_src)?;
     template.validate_for(scope)?;
-    Ok(RefSettings { code, template, scope })
+    Ok(RefSettings { code, template, template_src, scope })
 }
 
 /// Project code, ref template and sequence scope (project settings screen). The scope cannot
@@ -123,7 +126,7 @@ pub fn update_ref_settings(conn: &Connection, id: &str, code: &str, template: &s
     }
     tx.execute(
         "UPDATE project SET code = ?2, ref_template = ?3, seq_scope = ?4, updated_at = ?5 WHERE id = ?1",
-        params![id, s.code, template.trim(), s.scope.as_str(), clock::now_iso()],
+        params![id, s.code, s.template_src, s.scope.as_str(), clock::now_iso()],
     )?;
     tx.commit()?;
     get(conn, id)

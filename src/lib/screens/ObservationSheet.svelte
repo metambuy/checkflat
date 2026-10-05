@@ -32,6 +32,7 @@
   let previewError = $state<AppError | null>(null);
   let input = $state<HTMLInputElement | null>(null);
 
+  // Case folding matches the backend (fractions::find compares to_lowercase, full Unicode).
   const typed = $derived(fraction.trim());
   const exact = $derived(fractions.find((f) => f.code.toLowerCase() === typed.toLowerCase()) ?? null);
   const suggestions = $derived(
