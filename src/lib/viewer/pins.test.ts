@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { revertMove, withPosition } from "./pins.ts";
 
-const pin = (id: string, x: number, y: number) => ({ id, refNo: Number(id), xNorm: x, yNorm: y });
+const pin = (id: string, x: number, y: number) => ({ id, seq: Number(id), xNorm: x, yNorm: y });
 
 test("a failed move reverts only that pin; pins created or deleted meanwhile stay", () => {
   const before = [pin("3", 0.1, 0.1), pin("5", 0.5, 0.5)];

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { backStep } from "./back.ts";
 
-const idle = { dialog: false, adding: false, draft: false, saving: false, selected: false };
+const idle = { dialog: false, sheet: false, adding: false, draft: false, saving: false, selected: false };
 
 test("with the delete dialog open, Back closes the dialog and nothing else", () => {
   // The dialog is opened from a selected pin: the selection must survive the first Back.
@@ -17,4 +17,11 @@ test("Back order without a dialog: add-pin mode or draft, then selection, then u
   assert.equal(backStep({ ...idle, draft: true, saving: true, selected: true }), "selection", "a draft being saved is not discarded");
   assert.equal(backStep({ ...idle, selected: true }), "selection");
   assert.equal(backStep(idle), null);
+});
+
+test("the observation sheet closes before the draft is discarded; not while saving", () => {
+  assert.equal(backStep({ ...idle, sheet: true, draft: true }), "sheet");
+  assert.equal(backStep({ ...idle, sheet: true, draft: true, selected: true }), "sheet");
+  assert.equal(backStep({ ...idle, sheet: true, draft: true, saving: true, selected: true }), "selection", "a save in flight is not interrupted");
+  assert.equal(backStep({ ...idle, dialog: true, sheet: true, draft: true }), "dialog");
 });

@@ -1,5 +1,11 @@
 # Changelog
 
+## Sprint 3a — 2026-10-05 (ref format migration, observation sheet, project settings; D-020)
+- Core: migration 2 — `project.code`, `ref_template`, `seq_scope`, `next_seq`; per-project `fraction` table; `observation.fraction` + `seq` + `seq_key` with `UNIQUE(project_id, seq_key, seq)` (both scopes enforced by the DB); `logo_path`, `next_ref_no` and `UNIQUE(project_id, ref_no)` dropped; existing refs become `seq`. SQLite table rebuild with `PRAGMA foreign_keys` switched off around the migration transaction and `foreign_key_check` before commit; D-008 backup (`.bak-v1`) unchanged.
+- Core: `refs` module (template parse/validate/render, empty tokens drop their separator, marker label); `assign_ref` per scope from counters that only grow (numbers never reused, also not through fraction deletion); the scope locks once a number was issued; fractions case-insensitive, stored canonically, upserted in the save transaction; `preview_ref`. 25 new/updated tests incl. v1 → v2 with data and a failed migration leaving v1 intact.
+- UI: observation sheet ("Next" on a draft → fraction with type-to-add, description, live "Ref: …") replaces Confirm; pin markers show the sequence (per project) or `FRAC-SEQ` (per fraction), bar/list/dialogs the full ref; Back/Escape closes the sheet before discarding the draft. Project settings screen: code, template with live next-ref preview, scope radios (locked once numbers exist), fraction list with add/remove.
+- Desktop: the existing Sprint 1/2 database upgraded on first start (version 2, integrity ok, backup written).
+
 ## Sprint 2 — code review of PR #1, 2026-10-02 (D-019)
 - Tile generation: one run per plan (a new run waits for the previous one to stop and destroy its PDF.js document); Retry offered after any failure, also with some levels done; a cache from other generator settings is cleared before anything is shown.
 - Tile cache: listed levels verified on read (every tile present and non-empty, else regenerated from that level); tiles fsynced on write; `clear` removes the manifest first; manifest validation rejects zero sizes, bad page sizes and settings other than the configured ones; `write_tile` accepts only configured levels and their grid.

@@ -19,18 +19,32 @@ pub fn insert_visit(conn: &Connection, id: &str, project_id: &str) {
     .unwrap();
 }
 
+/// Direct insert with the v2 columns (`seq_key` = `fraction` when given, as the per-fraction
+/// scope stores it; `''` otherwise).
 pub fn insert_observation(
     conn: &Connection,
     id: &str,
     project_id: &str,
     plan_id: &str,
-    ref_no: i64,
+    seq: i64,
+    visit_id: Option<&str>,
+) -> rusqlite::Result<usize> {
+    insert_observation_in(conn, id, project_id, plan_id, "", seq, visit_id)
+}
+
+pub fn insert_observation_in(
+    conn: &Connection,
+    id: &str,
+    project_id: &str,
+    plan_id: &str,
+    fraction: &str,
+    seq: i64,
     visit_id: Option<&str>,
 ) -> rusqlite::Result<usize> {
     conn.execute(
-        "INSERT INTO observation(id, project_id, plan_id, ref_no, x_norm, y_norm, created_visit_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 0.5, 0.5, ?5, '2026-09-25T00:00:00.000Z', '2026-09-25T00:00:00.000Z')",
-        params![id, project_id, plan_id, ref_no, visit_id],
+        "INSERT INTO observation(id, project_id, plan_id, fraction, seq, seq_key, x_norm, y_norm, created_visit_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?4, 0.5, 0.5, ?6, '2026-09-25T00:00:00.000Z', '2026-09-25T00:00:00.000Z')",
+        params![id, project_id, plan_id, fraction, seq, visit_id],
     )
 }
 

@@ -15,14 +15,30 @@ export interface ProjectSummary {
   createdAt: string;
   updatedAt: string;
 }
+export type Scope = "project" | "fraction";
 export interface Project {
   id: string;
   name: string;
   address: string;
-  logoPath: string | null;
-  nextRefNo: number;
+  /** Project code shown by {PROJ} in the ref template (may be empty). */
+  code: string;
+  /** Ref template, e.g. "{PROJ}-{FRAC}-{SEQ:2}". */
+  refTemplate: string;
+  /** Whether sequence numbers run per project or per fraction (D-020). */
+  seqScope: Scope;
+  nextSeq: number;
+  /** The scope can no longer change: a number has been issued (even if every pin was deleted since). */
+  scopeLocked: boolean;
+  observationCount: number;
   createdAt: string;
   updatedAt: string;
+}
+export interface Fraction {
+  id: string;
+  projectId: string;
+  code: string;
+  nextSeq: number;
+  createdAt: string;
 }
 export interface Plan {
   id: string;
@@ -50,7 +66,13 @@ export interface Observation {
   id: string;
   projectId: string;
   planId: string;
-  refNo: number;
+  /** Fraction code (canonical spelling); "" when none. */
+  fraction: string;
+  seq: number;
+  /** Full displayed ref, computed by the backend from the project's template (e.g. "LAM-A-03"). */
+  ref: string;
+  /** Short pin-marker label: "3" (numbers per project) or "A-03" (per fraction). */
+  marker: string;
   xNorm: number;
   yNorm: number;
   description: string;
@@ -97,6 +119,14 @@ export const api = {
   renameProject: (id: string, name: string) => invoke<Project>("rename_project", { id, name }),
   updateProjectAddress: (id: string, address: string) => invoke<Project>("update_project_address", { id, address }),
   deleteProject: (id: string) => invoke<void>("delete_project", { id }),
+  updateRefSettings: (id: string, code: string, template: string, scope: Scope) =>
+    invoke<Project>("update_ref_settings", { id, code, template, scope }),
+  /** Next ref under unsaved settings (validation errors: invalid_template, fraction_required). */
+  previewRefSettings: (id: string, code: string, template: string, scope: Scope, fraction: string) =>
+    invoke<string>("preview_ref_settings", { id, code, template, scope, fraction }),
+  listFractions: (projectId: string) => invoke<Fraction[]>("list_fractions", { projectId }),
+  addFraction: (projectId: string, code: string) => invoke<Fraction>("add_fraction", { projectId, code }),
+  deleteFraction: (id: string) => invoke<void>("delete_fraction", { id }),
   listPlans: (projectId: string) => invoke<Plan[]>("list_plans", { projectId }),
   stagePlanSource: (source: string) => invoke<StagedPlan>("stage_plan_source", { source }),
   importPlan: (projectId: string, token: string, title: string) => invoke<Plan>("import_plan", { projectId, token, title }),
@@ -105,8 +135,11 @@ export const api = {
   deletePlan: (id: string) => invoke<void>("delete_plan", { id }),
   getPlan: (id: string) => invoke<Plan>("get_plan", { id }),
   listPins: (planId: string) => invoke<Observation[]>("list_pins", { planId }),
-  /** Confirms a draft pin: takes the next ref number. */
-  createPin: (planId: string, x: number, y: number) => invoke<Observation>("create_pin", { planId, x, y }),
+  /** Save of the observation sheet: adds the fraction if new and takes the next number. */
+  createObservation: (planId: string, x: number, y: number, fraction: string, description: string) =>
+    invoke<Observation>("create_observation", { planId, x, y, fraction, description }),
+  /** The ref the next observation in `fraction` would get (stored settings). */
+  previewRef: (projectId: string, fraction: string) => invoke<string>("preview_ref", { projectId, fraction }),
   movePin: (id: string, x: number, y: number) => invoke<Observation>("move_pin", { id, x, y }),
   deletePin: (id: string) => invoke<void>("delete_pin", { id }),
   planTilesInfo: (planId: string) => invoke<TileInfo>("plan_tiles_info", { planId }),

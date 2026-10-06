@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::paths::RelPath;
+use crate::refs::Scope;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -8,9 +9,18 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub address: String,
-    pub logo_path: Option<RelPath>,
-    /// Next observation ref number, continuous per project (pending client confirmation).
-    pub next_ref_no: i64,
+    /// Project code shown by `{PROJ}` in the ref template (may be empty).
+    pub code: String,
+    /// Ref template (`refs::Template`), e.g. `{PROJ}-{FRAC}-{SEQ:2}`.
+    pub ref_template: String,
+    /// Whether sequence numbers run per project or per fraction (D-020).
+    pub seq_scope: Scope,
+    /// Next sequence number when `seq_scope` is `project`.
+    pub next_seq: i64,
+    /// `seq_scope` can no longer change: a number has been issued (`next_seq > 1` here or on any
+    /// fraction), even if every observation was deleted since.
+    pub scope_locked: bool,
+    pub observation_count: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -38,15 +48,34 @@ pub struct Plan {
     pub created_at: String,
 }
 
-/// An observation. In Sprint 2 only the pin part is edited (position, ref number); description,
-/// photos and visits follow in Sprints 3 and 7.
+/// A fraction (unit) of a project, e.g. `A`, `1D`, or `PC` for common areas. Observations store
+/// its `code`; `next_seq` is the counter used when numbers run per fraction.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Fraction {
+    pub id: String,
+    pub project_id: String,
+    pub code: String,
+    pub next_seq: i64,
+    pub created_at: String,
+}
+
+/// An observation. The displayed ref is computed from the project's template and never stored
+/// (`refs`). Photos and visits follow in Sprints 3b and 7.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Observation {
     pub id: String,
     pub project_id: String,
     pub plan_id: String,
-    pub ref_no: i64,
+    /// Fraction code (canonical case from the `fraction` table); empty when none.
+    pub fraction: String,
+    pub seq: i64,
+    /// Full displayed ref, e.g. `LAM-A-03`.
+    #[serde(rename = "ref")]
+    pub display_ref: String,
+    /// Short label for the pin marker: `3` (numbers per project) or `A-03` (per fraction).
+    pub marker: String,
     pub x_norm: f64,
     pub y_norm: f64,
     pub description: String,
