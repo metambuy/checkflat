@@ -61,9 +61,14 @@ jobs:
       - name: cargo clippy (deny warnings)
         run: cargo clippy --workspace --all-features --all-targets -- -D warnings
 
-  android:
-    name: Android debug APK
+  android-release:
+    name: Android signed release APK
     runs-on: ubuntu-latest
+    env:
+      # Empty on PRs from forks (no secrets): the build then stays unsigned and the verify step fails loudly.
+      ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -94,17 +99,42 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
-      - name: Build debug APK (both report engines, installable)
+      # Fixed release key (D-021): every build is signed with the same certificate, so build N+1 installs over N.
+      - name: Set up signing
+        if: env.ANDROID_KEY_BASE64 != ''
+        run: |
+          base64 -d <<< "$ANDROID_KEY_BASE64" > "$RUNNER_TEMP/keystore.jks"
+          {
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "password=$ANDROID_KEY_PASSWORD"
+            echo "storeFile=$RUNNER_TEMP/keystore.jks"
+          } > src-tauri/gen/android/keystore.properties
+
+      # versionCode = run number: strictly increasing, so an update is never a downgrade.
+      # Never rename this workflow file: the run number restarts at 1 for a new workflow (D-021).
+      - name: Build signed release APK (arm64)
         env:
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+          VERSION_CODE: ${{ github.run_number }}
         run: |
-          pnpm tauri android build --debug --apk --target aarch64
+          pnpm tauri android build --apk --target aarch64 \
+            -c "{\"bundle\":{\"android\":{\"versionCode\":$VERSION_CODE}}}"
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
           mkdir -p out
-          cp src-tauri/gen/android/app/build/outputs/apk/*/debug/*.apk out/checkflat-debug-both.apk
+          cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk "out/checkflat-$VERSION-$VERSION_CODE-arm64.apk"
+
+      - name: Verify signature and version
+        run: |
+          APK=$(ls out/*.apk)
+          BT="$ANDROID_SDK_ROOT/build-tools/36.0.0"
+          "$BT/apksigner" verify --print-certs "$APK" | tee certs.txt
+          { echo "### $(basename "$APK")"; echo;
+            "$BT/aapt2" dump badging "$APK" | grep -E "^package:" ;
+            echo; echo '```'; grep -E "SHA-256" certs.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
+          name: android-release-apk
           path: out/*.apk
           if-no-files-found: error
 
