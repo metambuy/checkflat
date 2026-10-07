@@ -319,10 +319,22 @@
           "markdownDescription": "Denies the display_name command without any pre-configured scope."
         },
         {
-          "description": "Allows taking a photo with the system camera app and resolving display names of picked files\n#### This default permission set includes:\n\n- `allow-capture`\n- `allow-display-name`",
+          "description": "Enables the pick_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pick-image",
+          "markdownDescription": "Enables the pick_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pick_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pick-image",
+          "markdownDescription": "Denies the pick_image command without any pre-configured scope."
+        },
+        {
+          "description": "Allows taking a photo with the system camera app, picking an image with the system Photo Picker and resolving display names of picked files\n#### This default permission set includes:\n\n- `allow-capture`\n- `allow-pick-image`\n- `allow-display-name`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows taking a photo with the system camera app and resolving display names of picked files\n#### This default permission set includes:\n\n- `allow-capture`\n- `allow-display-name`"
+          "markdownDescription": "Allows taking a photo with the system camera app, picking an image with the system Photo Picker and resolving display names of picked files\n#### This default permission set includes:\n\n- `allow-capture`\n- `allow-pick-image`\n- `allow-display-name`"
         }
       ]
     }

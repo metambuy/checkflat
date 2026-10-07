@@ -118,7 +118,7 @@
   async function saveObservation(fraction: string, description: string) {
     sheetError = null;
     try {
-      const pin = await confirm(() => ds, (s) => (ds = s), (p) => api.createObservation(planId, p.x, p.y, fraction, description));
+      const pin = await confirm(() => ds, (s) => (ds = s), (p) => api.createObservation(planId, p.x, p.y, fraction, description, []));
       if (!pin) return;
       closeSheet();
       selectedId = pin.id;

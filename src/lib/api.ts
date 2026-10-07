@@ -82,6 +82,25 @@ export interface Observation {
   createdAt: string;
   updatedAt: string;
 }
+/** A stored photo; `path` is absolute, for convertFileSrc (asset protocol, `$APPDATA/projects/**`). */
+export interface Photo {
+  id: string;
+  observationId: string;
+  path: string;
+  /** UTC, RFC 3339. */
+  takenAt: string;
+}
+/** A processed photo (≤ 1600 px JPEG) waiting for the observation save; `path` is under `$APPDATA/tmp/**`. */
+export interface StagedPhoto {
+  token: string;
+  path: string;
+  takenAt: string;
+}
+/** What the save takes for each new photo. */
+export interface PhotoInput {
+  token: string;
+  takenAt: string;
+}
 export interface TileLevel {
   /** Long side in px; the level's directory name. */
   size: number;
@@ -136,8 +155,13 @@ export const api = {
   getPlan: (id: string) => invoke<Plan>("get_plan", { id }),
   listPins: (planId: string) => invoke<Observation[]>("list_pins", { planId }),
   /** Save of the observation sheet: adds the fraction if new and takes the next number. */
-  createObservation: (planId: string, x: number, y: number, fraction: string, description: string) =>
-    invoke<Observation>("create_observation", { planId, x, y, fraction, description }),
+  /** At least one photo is required (`photo_required`). */
+  createObservation: (planId: string, x: number, y: number, fraction: string, description: string, photos: PhotoInput[]) =>
+    invoke<Observation>("create_observation", { planId, x, y, fraction, description, photos }),
+  /** `source`: absolute path (Android plugin cache copy, Windows picker) or content:// URI. `utcOffsetMin`: minutes east of UTC. */
+  stagePhoto: (source: string, utcOffsetMin: number) => invoke<StagedPhoto>("stage_photo", { source, utcOffsetMin }),
+  discardStagedPhoto: (token: string) => invoke<void>("discard_staged_photo", { token }),
+  listPhotos: (observationId: string) => invoke<Photo[]>("list_photos", { observationId }),
   /** The ref the next observation in `fraction` would get (stored settings). */
   previewRef: (projectId: string, fraction: string) => invoke<string>("preview_ref", { projectId, fraction }),
   movePin: (id: string, x: number, y: number) => invoke<Observation>("move_pin", { id, x, y }),

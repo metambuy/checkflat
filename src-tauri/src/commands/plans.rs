@@ -24,7 +24,7 @@ pub struct StagedPlan {
 }
 
 /// `content://…` / `file://…` become URL paths (Android picker), anything else is a filesystem path.
-fn to_file_path(source: &str) -> FilePath {
+pub(crate) fn to_file_path(source: &str) -> FilePath {
     if source.contains("://") {
         if let Ok(url) = Url::parse(source) {
             return FilePath::Url(url);

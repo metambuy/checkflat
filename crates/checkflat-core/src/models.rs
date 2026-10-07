@@ -61,7 +61,7 @@ pub struct Fraction {
 }
 
 /// An observation. The displayed ref is computed from the project's template and never stored
-/// (`refs`). Photos and visits follow in Sprints 3b and 7.
+/// (`refs`). Photos are in [`Photo`]; visits follow in Sprint 7.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Observation {
@@ -84,4 +84,17 @@ pub struct Observation {
     pub resolved_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// A stored photo: `projects/<project_id>/photos/<id>.jpg`, long side ≤ 1600 px, orientation applied.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Photo {
+    pub id: String,
+    pub observation_id: String,
+    pub visit_id: Option<String>,
+    pub file_path: RelPath,
+    /// UTC, RFC 3339 (EXIF capture time, or the import time when the file has none).
+    pub taken_at: String,
+    pub created_at: String,
 }

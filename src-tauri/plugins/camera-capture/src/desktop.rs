@@ -18,6 +18,10 @@ impl<R: Runtime> CameraCapture<R> {
         Err(crate::Error::Unsupported)
     }
 
+    pub fn pick_image(&self) -> crate::Result<PickResponse> {
+        Err(crate::Error::Unsupported)
+    }
+
     /// Desktop paths carry their own file name; nothing to resolve.
     pub fn display_name(&self, _uri: String) -> crate::Result<Option<String>> {
         Ok(None)

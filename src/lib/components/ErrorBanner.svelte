@@ -13,6 +13,9 @@
       case "scope_locked": return t("error.scope_locked");
       case "fraction_in_use": return t("error.fraction_in_use");
       case "fraction_required": return t("error.fraction_required");
+      case "photo_required": return t("error.photo_required");
+      case "unreadable_image": return t("error.unreadable_image");
+      case "image_unsupported": return t("error.image_unsupported");
       case "validation": return t("error.validation");
       case "not_found": return t("error.not_found");
       case "db": return t("error.db");
