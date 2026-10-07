@@ -112,6 +112,7 @@ pub fn run() {
             commands::plans::get_plan,
             commands::observations::list_pins,
             commands::observations::create_observation,
+            commands::observations::update_observation,
             commands::observations::preview_ref,
             commands::observations::move_pin,
             commands::observations::delete_pin,

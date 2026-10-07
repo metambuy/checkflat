@@ -26,6 +26,18 @@ pub async fn create_observation(
     run_db(app, move |c, dir| observations::create_observation(c, dir, &plan_id, x, y, &fraction, &description, &photos)).await
 }
 
+/// Edit mode of the sheet: description and photos only (fraction and ref are fixed).
+#[tauri::command]
+pub async fn update_observation(
+    app: AppHandle,
+    id: String,
+    description: String,
+    photos: Vec<PhotoInput>,
+    remove_photo_ids: Vec<String>,
+) -> AppResult<Observation> {
+    run_db(app, move |c, dir| observations::update_observation(c, dir, &id, &description, &photos, &remove_photo_ids)).await
+}
+
 /// The ref the next observation in `fraction` would get with the project's stored settings.
 #[tauri::command]
 pub async fn preview_ref(app: AppHandle, project_id: String, fraction: String) -> AppResult<String> {

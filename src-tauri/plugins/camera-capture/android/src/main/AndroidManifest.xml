@@ -12,7 +12,7 @@
 
     <application>
         <!-- Lets Play services install the modern Photo Picker on Android 4.4–10 devices that have it;
-             devices without Play services (e.g. Huawei) fall back to ACTION_OPEN_DOCUMENT. -->
+             devices without Play services fall back to ACTION_OPEN_DOCUMENT. -->
         <service
             android:name="com.google.android.gms.metadata.ModuleDependencies"
             android:enabled="false"

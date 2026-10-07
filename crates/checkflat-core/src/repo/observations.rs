@@ -165,6 +165,52 @@ pub fn create_observation(
     get(conn, &id)
 }
 
+/// Save of the sheet in edit mode: the description and the photos (add the staged ones, remove
+/// the listed ids). The fraction, and so the ref, never change here. The observation must keep at
+/// least one photo, which an observation migrated from Sprint 3a (none) satisfies by adding one.
+/// One transaction: on any error the rows are unchanged and staged files are back in `tmp/`;
+/// removed files are deleted after the commit (row first, D-010).
+pub fn update_observation(
+    conn: &Connection,
+    data_dir: &Path,
+    id: &str,
+    description: &str,
+    new_photos: &[PhotoInput],
+    remove_ids: &[String],
+) -> Result<Observation> {
+    let obs = get(conn, id)?;
+    let existing = photos::list_for_observation(conn, id)?;
+    let mut removed: Vec<&crate::models::Photo> = Vec::new();
+    for rid in remove_ids {
+        let Some(p) = existing.iter().find(|p| &p.id == rid) else {
+            return Err(CoreError::Validation(format!("photo {rid} does not belong to this observation")));
+        };
+        if !removed.iter().any(|r| r.id == p.id) {
+            removed.push(p);
+        }
+    }
+    if existing.len() - removed.len() + new_photos.len() == 0 {
+        return Err(CoreError::PhotoRequired);
+    }
+    let now = clock::now_iso();
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE observation SET description = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, description.trim(), now],
+    )?;
+    for p in &removed {
+        tx.execute("DELETE FROM photo WHERE id = ?1", [&p.id])?;
+    }
+    let moved = photos::attach(&tx, data_dir, &obs.project_id, id, new_photos, &now)?;
+    if let Err(e) = tx.commit() {
+        photos::revert(&moved);
+        return Err(e.into());
+    }
+    let files: Vec<RelPath> = removed.iter().map(|p| p.file_path.clone()).collect();
+    photos::remove_files(data_dir, &files);
+    get(conn, id)
+}
+
 pub fn move_pin(conn: &Connection, id: &str, x: f64, y: f64) -> Result<Observation> {
     check_pos(x, y)?;
     let n = conn.execute(

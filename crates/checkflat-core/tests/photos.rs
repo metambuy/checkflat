@@ -222,3 +222,79 @@ fn sweep_keeps_saved_photos_and_fresh_staged_ones() {
     assert!(staging_photo(&staged.token).resolve(dir.path()).is_file(), "a staged photo survives startup (recovery after a kill)");
     assert!(report.quarantined.is_empty(), "{report:?}");
 }
+
+fn photo_ids(conn: &Connection, obs: &str) -> Vec<String> {
+    photo_repo::list_for_observation(conn, obs).unwrap().into_iter().map(|p| p.id).collect()
+}
+
+#[test]
+fn edit_changes_description_and_photos_but_never_drops_the_last_photo() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let obs = save(&conn, dir.path(), &plan, &[common::staged_photo(dir.path())]).unwrap();
+    let first = photo_ids(&conn, &obs.id);
+    let first_file = photo_repo::list_for_observation(&conn, &obs.id).unwrap()[0].file_path.resolve(dir.path());
+
+    // Removing the only photo without adding one is refused and changes nothing.
+    let err = observations::update_observation(&conn, dir.path(), &obs.id, "new text", &[], &first).unwrap_err();
+    assert!(matches!(err, CoreError::PhotoRequired), "{err:?}");
+    assert_eq!(observations::get(&conn, &obs.id).unwrap().description, "d");
+    assert!(first_file.is_file());
+
+    // Swap: add one, remove the old one, new description (trimmed); ref and position untouched.
+    let added = common::staged_photo(dir.path());
+    let edited = observations::update_observation(&conn, dir.path(), &obs.id, "  new text ", &[added], &first).unwrap();
+    assert_eq!(edited.description, "new text");
+    assert_eq!((edited.display_ref.as_str(), edited.seq, edited.x_norm), (obs.display_ref.as_str(), obs.seq, obs.x_norm));
+    assert!(edited.updated_at > obs.updated_at);
+    let now_ids = photo_ids(&conn, &obs.id);
+    assert_eq!(now_ids.len(), 1);
+    assert_ne!(now_ids, first);
+    assert!(!first_file.exists(), "removed photo's file deleted after the commit");
+    assert!(tmp_files(dir.path()).is_empty());
+}
+
+#[test]
+fn edit_rejects_foreign_photos_and_rolls_back_on_a_missing_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let a = save(&conn, dir.path(), &plan, &common::one_photo(&conn)).unwrap();
+    let b = save(&conn, dir.path(), &plan, &common::one_photo(&conn)).unwrap();
+    let b_photo = photo_ids(&conn, &b.id);
+    assert!(matches!(
+        observations::update_observation(&conn, dir.path(), &a.id, "x", &[], &b_photo),
+        Err(CoreError::Validation(_))
+    ));
+
+    // One good staged photo + one missing token: description, rows and files unchanged, the good
+    // photo back in staging.
+    let a_photo = photo_ids(&conn, &a.id);
+    let good = common::staged_photo(dir.path());
+    let missing = PhotoInput { token: checkflat_core::ids::new_id(), taken_at: clock::now_iso() };
+    let err = observations::update_observation(&conn, dir.path(), &a.id, "changed", &[good.clone(), missing], &a_photo).unwrap_err();
+    assert!(matches!(err, CoreError::NotFound), "{err:?}");
+    assert_eq!(photo_ids(&conn, &a.id), a_photo, "removal rolled back");
+    assert_eq!(observations::get(&conn, &a.id).unwrap().description, "d");
+    assert!(photo_repo::list_for_observation(&conn, &a.id).unwrap()[0].file_path.resolve(dir.path()).is_file());
+    assert!(staging_photo(&good.token).resolve(dir.path()).is_file());
+    assert!(matches!(
+        observations::update_observation(&conn, dir.path(), "missing", "x", &[], &[]),
+        Err(CoreError::NotFound)
+    ));
+}
+
+#[test]
+fn an_observation_migrated_without_photos_opens_and_gets_its_first_photo_on_edit() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    common::insert_observation(&conn, "legacy", &plan.project_id, &plan.id, 1, None).unwrap();
+    // Reads work with no photos at all.
+    assert_eq!(observations::get(&conn, "legacy").unwrap().seq, 1);
+    assert_eq!(observations::list_for_plan(&conn, &plan.id).unwrap().len(), 1);
+    assert!(photo_repo::list_for_observation(&conn, "legacy").unwrap().is_empty());
+    // Saving without a photo is refused; with one it works.
+    assert!(matches!(observations::update_observation(&conn, dir.path(), "legacy", "t", &[], &[]), Err(CoreError::PhotoRequired)));
+    let o = observations::update_observation(&conn, dir.path(), "legacy", "t", &common::one_photo(&conn), &[]).unwrap();
+    assert_eq!(o.description, "t");
+    assert_eq!(photo_ids(&conn, "legacy").len(), 1);
+}

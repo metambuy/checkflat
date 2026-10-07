@@ -158,6 +158,9 @@ export const api = {
   /** At least one photo is required (`photo_required`). */
   createObservation: (planId: string, x: number, y: number, fraction: string, description: string, photos: PhotoInput[]) =>
     invoke<Observation>("create_observation", { planId, x, y, fraction, description, photos }),
+  /** Edit mode: description and photos only (fraction and ref are fixed). At least one photo must remain. */
+  updateObservation: (id: string, description: string, photos: PhotoInput[], removePhotoIds: string[]) =>
+    invoke<Observation>("update_observation", { id, description, photos, removePhotoIds }),
   /** `source`: absolute path (Android plugin cache copy, Windows picker) or content:// URI. `utcOffsetMin`: minutes east of UTC. */
   stagePhoto: (source: string, utcOffsetMin: number) => invoke<StagedPhoto>("stage_photo", { source, utcOffsetMin }),
   discardStagedPhoto: (token: string) => invoke<void>("discard_staged_photo", { token }),
