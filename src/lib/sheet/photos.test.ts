@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addStaged, canSave, count, noPhotos, removeExisting, removeStaged, shown, toSave, withExisting } from "./photos.ts";
+import type { Phase } from "./photos.ts";
+import { acquirePhoto, addStaged, canSave, count, noPhotos, removeExisting, removeStaged, shown, toSave, withExisting } from "./photos.ts";
 
 const stored = (id: string) => ({ id, observationId: "o", path: `/data/projects/p/photos/${id}.jpg`, takenAt: "2026-10-05T12:00:00.000Z" });
 const staged = (token: string) => ({ token, path: `/data/tmp/${token}.jpg`, takenAt: "2026-10-06T08:00:00.000Z" });
@@ -44,4 +45,61 @@ test("removing the last stored photo needs a replacement", () => {
   const swapped = addStaged(s, staged("t1"));
   assert.equal(canSave(swapped, false), true);
   assert.deepEqual(toSave(swapped), { photos: [{ token: "t1", takenAt: "2026-10-06T08:00:00.000Z" }], removed: ["a"] });
+});
+
+const track = () => {
+  const phases: Phase[] = [];
+  return { phases, onPhase: (p: Phase) => phases.push(p) };
+};
+
+test("backing out of the picker adds nothing, is not an error, never reaches processing and ends idle", async () => {
+  const { phases, onPhase } = track();
+  let staged = 0;
+  const r = await acquirePhoto({ getPath: async () => null, stage: async () => { staged++; return staged as never; } }, onPhase);
+  assert.deepEqual(r, { staged: null, error: null });
+  assert.deepEqual(phases, ["picking", "idle"]);
+  assert.equal(staged, 0, "nothing is processed");
+  // A missing or empty path is a cancel too.
+  const r2 = await acquirePhoto({ getPath: async () => "", stage: async () => { throw new Error("no"); } }, track().onPhase);
+  assert.deepEqual(r2, { staged: null, error: null });
+});
+
+test("processing starts only after a path came back, and a photo is returned", async () => {
+  const { phases, onPhase } = track();
+  let phaseWhenPickerClosed: Phase | undefined;
+  const r = await acquirePhoto(
+    { getPath: async () => { phaseWhenPickerClosed = phases[phases.length - 1]; return "/cache/x.jpg"; }, stage: async (p) => staged(p) },
+    onPhase,
+  );
+  assert.equal(phaseWhenPickerClosed, "picking", "no 'processing' while the picker is open");
+  assert.deepEqual(phases, ["picking", "processing", "idle"]);
+  assert.equal(r.error, null);
+  assert.equal(r.staged?.token, "/cache/x.jpg");
+});
+
+test("a failing picker or a failing processing step ends idle with the error", async () => {
+  const boom = new Error("picker failed");
+  const a = track();
+  const ra = await acquirePhoto({ getPath: async () => { throw boom; }, stage: async (p) => staged(p) }, a.onPhase);
+  assert.equal(ra.staged, null);
+  assert.equal(ra.error, boom);
+  assert.deepEqual(a.phases, ["picking", "idle"]);
+
+  const bad = { code: "unreadable_image", message: "x" };
+  const b = track();
+  const rb = await acquirePhoto({ getPath: async () => "/p.jpg", stage: async () => { throw bad; } }, b.onPhase);
+  assert.equal(rb.error, bad);
+  assert.deepEqual(b.phases, ["picking", "processing", "idle"]);
+});
+
+test("the sheet cannot save while an add is in progress, and can again once it ended", async () => {
+  const s = addStaged(noPhotos, staged("t1"));
+  let busy = false;
+  const seen: boolean[] = [];
+  await acquirePhoto(
+    { getPath: async () => { seen.push(canSave(s, busy)); return null; }, stage: async (p) => staged(p) },
+    (p) => (busy = p !== "idle"),
+  );
+  assert.deepEqual(seen, [false], "disabled while the picker is open");
+  assert.equal(canSave(s, busy), true, "enabled again after a cancel");
 });

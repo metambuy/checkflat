@@ -7,12 +7,12 @@
   // are not saved are discarded when the sheet goes away.
   import { onDestroy, onMount, untrack } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { api, asAppError, type AppError, type Fraction, type Observation, type StagedPhoto } from "../api";
+  import { api, asAppError, type AppError, type Fraction, type Observation } from "../api";
   import { t } from "../i18n.svelte";
   import { livePreview } from "../livePreview";
-  import { captureStagedPhoto, pickStagedPhoto } from "../photoSource";
+  import { capturePath, pickPath, stagePath } from "../photoSource";
   import { isAndroid } from "../platform";
-  import { addStaged, canSave, noPhotos, removeExisting, removeStaged, shown, toSave, withExisting, type PhotoSet } from "../sheet/photos";
+  import { acquirePhoto, addStaged, canSave, noPhotos, removeExisting, removeStaged, shown, toSave, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
   let {
@@ -42,7 +42,8 @@
   let fraction = $state("");
   let description = $state(untrack(() => observation?.description ?? ""));
   let photos = $state<PhotoSet>(noPhotos);
-  let busy = $state(false);
+  let phase = $state<Phase>("idle");
+  const busy = $derived(phase !== "idle");
   let photoError = $state<AppError | null>(null);
   let camera = $state(false);
   let preview = $state<string | null>(null);
@@ -90,18 +91,13 @@
     for (const p of photos.staged) void api.discardStagedPhoto(p.token).catch(() => {});
   });
 
-  async function add(source: () => Promise<StagedPhoto | null>) {
+  async function add(getPath: () => Promise<string | null>) {
     if (busy || saving) return;
-    busy = true;
     photoError = null;
-    try {
-      const p = await source();
-      if (p) photos = addStaged(photos, p);
-    } catch (e) {
-      photoError = asAppError(e);
-    } finally {
-      busy = false;
-    }
+    // "Processing" shows only once the camera/picker returned a file; every way out ends idle.
+    const r = await acquirePhoto({ getPath, stage: stagePath }, (p) => (phase = p));
+    if (r.staged) photos = addStaged(photos, r.staged);
+    if (r.error) photoError = asAppError(r.error);
   }
   function removeItem(key: string, staged: boolean) {
     if (staged) {
@@ -169,10 +165,10 @@
       </ul>
       <div class="add-row">
         {#if camera}
-          <button type="button" onclick={() => add(captureStagedPhoto)} disabled={busy || saving}>{t("photos.camera")}</button>
+          <button type="button" onclick={() => add(capturePath)} disabled={busy || saving}>{t("photos.camera")}</button>
         {/if}
-        <button type="button" onclick={() => add(pickStagedPhoto)} disabled={busy || saving}>{t("photos.gallery")}</button>
-        {#if busy}<span class="muted" aria-live="polite">{t("photos.processing")}</span>{/if}
+        <button type="button" onclick={() => add(pickPath)} disabled={busy || saving}>{t("photos.gallery")}</button>
+        {#if phase === "processing"}<span class="muted" aria-live="polite">{t("photos.processing")}</span>{/if}
       </div>
       {#if !busy && shown(photos).length === 0}
         <p class="hint">{t("photos.hint")}</p>

@@ -46,3 +46,34 @@ export const toSave = (s: PhotoSet): { photos: PhotoInput[]; removed: string[] }
   photos: s.staged.map((p) => ({ token: p.token, takenAt: p.takenAt })),
   removed: [...s.removed],
 });
+
+/** Where an add is: waiting for the camera/picker, or processing the file it returned. */
+export type Phase = "idle" | "picking" | "processing";
+
+export interface PhotoSource {
+  /** Camera or picker: the file's path, or null when the user backed out. */
+  getPath: () => Promise<string | null>;
+  stage: (path: string) => Promise<StagedPhoto>;
+}
+
+/**
+ * One add of a photo. "processing" starts only once a path came back (not while the camera or
+ * picker is open), and every way out (cancelled, failed, done) ends in "idle", so the sheet can
+ * never be left waiting. A cancel is `{ staged: null, error: null }`.
+ */
+export async function acquirePhoto(
+  source: PhotoSource,
+  onPhase: (p: Phase) => void,
+): Promise<{ staged: StagedPhoto | null; error: unknown }> {
+  onPhase("picking");
+  try {
+    const path = await source.getPath();
+    if (!path) return { staged: null, error: null };
+    onPhase("processing");
+    return { staged: await source.stage(path), error: null };
+  } catch (error) {
+    return { staged: null, error };
+  } finally {
+    onPhase("idle");
+  }
+}

@@ -7,13 +7,19 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
+import android.util.Log
 import android.provider.OpenableColumns
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -42,6 +48,13 @@ class DisplayNameArgs {
 class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     private var pendingFile: File? = null
     private var pickPending = false
+
+    // The pick that has not been settled yet. `pickImage` must always resolve (a path, or nothing
+    // when the user backed out); if the system never delivers the activity result, the lifecycle
+    // watchdog below settles it as a cancel, so the UI is never left waiting.
+    @Volatile private var pickInvoke: Invoke? = null
+    private var pickObserver: LifecycleEventObserver? = null
+    private val main = Handler(Looper.getMainLooper())
 
     /**
      * Display name of a picked file (content:// via ContentResolver, file:// via the path).
@@ -129,19 +142,61 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         purgeOldCache()
         val request = PickVisualMediaRequest.Builder().setMediaType(PickVisualMedia.ImageOnly).build()
         val intent = PickVisualMedia().createIntent(activity, request)
+        Log.i(TAG, "pick: launching ${intent.action} (API ${Build.VERSION.SDK_INT})")
         pickPending = true
+        pickInvoke = invoke
+        watchPick(invoke)
         try {
             startActivityForResult(invoke, intent, "onPickResult")
         } catch (e: ActivityNotFoundException) {
             pickPending = false
+            pickInvoke = null
+            unwatchPick()
             invoke.reject("no photo picker available")
         }
     }
 
+    /** After the picker took our activity away and gave it back, wait a moment for the result, then settle as a cancel. */
+    private fun watchPick(invoke: Invoke) {
+        activity.runOnUiThread {
+            var left = false
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE) left = true
+                if (event == Lifecycle.Event.ON_RESUME && left) {
+                    main.postDelayed({ pickLost(invoke) }, LOST_RESULT_GRACE_MS)
+                }
+            }
+            pickObserver = observer
+            (activity as? LifecycleOwner)?.lifecycle?.addObserver(observer)
+        }
+    }
+
+    private fun unwatchPick() {
+        val observer = pickObserver ?: return
+        pickObserver = null
+        activity.runOnUiThread { (activity as? LifecycleOwner)?.lifecycle?.removeObserver(observer) }
+    }
+
+    private fun pickLost(invoke: Invoke) {
+        if (pickInvoke !== invoke) return // the result arrived (or it was settled already)
+        Log.w(TAG, "pick: no activity result after the app resumed; settling as cancelled")
+        pickInvoke = null
+        pickPending = false
+        unwatchPick()
+        invoke.resolve(JSObject())
+    }
+
     @ActivityCallback
     fun onPickResult(invoke: Invoke, result: ActivityResult) {
+        if (pickInvoke !== invoke) {
+            Log.w(TAG, "pick: result code=${result.resultCode} arrived after the pick was settled; ignored")
+            return
+        }
+        pickInvoke = null
         pickPending = false
+        unwatchPick()
         val uri = PickVisualMedia().parseResult(result.resultCode, result.data)
+        Log.i(TAG, "pick: result code=${result.resultCode} uri=${uri != null}")
         if (uri == null) {
             invoke.resolve(JSObject()) // cancelled: no path
             return
@@ -157,6 +212,7 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
                 val ready = prepare(copy)
                 invoke.resolve(JSObject().apply { put("path", ready.absolutePath) })
             } catch (e: Exception) {
+                Log.w(TAG, "pick: failed", e)
                 invoke.reject(e.message ?: e.toString())
             }
         }.start()
@@ -226,6 +282,8 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private companion object {
+        const val TAG = "CheckflatPick"
+        const val LOST_RESULT_GRACE_MS = 1500L
         const val CAPTURES = "captures"
         const val PICKS = "picks"
         const val TARGET_LONG_SIDE = 1600
