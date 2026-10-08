@@ -2,6 +2,8 @@
 //! that the dev screen still uses.
 
 mod commands;
+#[cfg(test)]
+mod asset_scope;
 mod devlog;
 mod error;
 mod state;

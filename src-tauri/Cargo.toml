@@ -24,6 +24,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 log = "0.4"
 
+[dev-dependencies]
+# Same matcher and options as Tauri's asset-protocol scope (tauri/src/scope/fs.rs), for the scope test.
+glob = "0.3"
+
 [features]
 # No default engines: tauri.conf.json `build.features` selects them (CI overrides it per variant with `-c`).
 default = []

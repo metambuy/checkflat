@@ -131,6 +131,9 @@ export function createDraftSaver(put: (raw: string) => Promise<void>, delayMs = 
 // At startup: if the sheet was open when the app died, bring back its input, plus the photo that
 // was being taken (a capture that finished while the app was not running).
 
+/** How long startup waits for the plugin's recovered capture before it gives up and starts normally. */
+export const RECOVERY_TIMEOUT_MS = 3000;
+
 export interface RecoveryDeps {
   loadRaw: () => Promise<string | null>;
   /** The plugin's recovered capture (a file path), or null. Always drained, so a stale one never lingers. */
@@ -142,18 +145,37 @@ export interface RecoveryDeps {
   targetExists: (d: SheetDraft) => Promise<boolean>;
   clear: () => Promise<void>;
   now: () => number;
+  /** Where "recovery skipped" is reported (default: console.warn). */
+  warn?: (message: string) => void;
+  /** Override of {@link RECOVERY_TIMEOUT_MS} (tests). */
+  takeCaptureTimeoutMs?: number;
 }
 
 /** The draft to restore (with the recovered capture added to its photos), or null. */
 export async function recoverDraft(deps: RecoveryDeps): Promise<SheetDraft | null> {
   const raw = await deps.loadRaw();
   const draft = parseDraft(raw, deps.now());
-  let captured: string | null = null;
-  try {
-    captured = await deps.takeCapture();
-  } catch {
-    // no plugin (desktop) or it failed: nothing recovered
+  // The plugin call must never hold startup hostage (a hung plugin, a dead bridge): past the
+  // timeout recovery is skipped and the app starts normally. The stored draft stays, so a later
+  // start can still restore it.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await Promise.race([
+    Promise.resolve()
+      .then(() => deps.takeCapture())
+      .then(
+        (path) => ({ path }),
+        () => ({ path: null }), // no plugin (desktop) or it failed: nothing recovered
+      ),
+    new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), deps.takeCaptureTimeoutMs ?? RECOVERY_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (outcome === "timeout") {
+    (deps.warn ?? console.warn)(`[recovery] the plugin did not answer within ${deps.takeCaptureTimeoutMs ?? RECOVERY_TIMEOUT_MS} ms; recovery skipped`);
+    return null;
   }
+  const captured: string | null = outcome.path;
   if (!draft) {
     if (raw) await deps.clear(); // malformed or expired
     return null;

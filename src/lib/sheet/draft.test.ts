@@ -146,3 +146,24 @@ test("restore: a create draft reopens the create sheet; an edit draft only if it
   assert.deepEqual(restoreTarget(edit, ["o0", "o1"]), { sheet: "edit", selectedId: "o1" });
   assert.equal(restoreTarget(edit, ["o0"]), null, "the pin is gone: nothing to restore (the draft must be dropped, not kept for another sheet)");
 });
+
+test("recovery: a plugin that never answers cannot block startup; recovery is skipped, the draft stays stored", async () => {
+  const warnings: string[] = [];
+  const d = deps({ takeCapture: () => new Promise<string | null>(() => {}), takeCaptureTimeoutMs: 20, warn: (m) => warnings.push(m) });
+  const started = Date.now();
+  const r = await recoverDraft(d);
+  assert.equal(r, null, "no restore: the app starts normally");
+  assert.ok(Date.now() - started < 1000, "and it did not wait for the plugin");
+  assert.equal(warnings.length, 1, "the skip is logged");
+  assert.match(warnings[0], /recovery skipped/);
+  assert.equal(d.cleared, 0, "the stored draft is kept for a later start");
+});
+
+test("recovery: a plugin that answers within the timeout is used as before", async () => {
+  const slow = deps({
+    takeCapture: () => new Promise((r) => setTimeout(() => r("/cache/captures/IMG_2.jpg"), 5)),
+    takeCaptureTimeoutMs: 500,
+  });
+  const r = await recoverDraft(slow);
+  assert.deepEqual(r?.staged.map((p) => p.token), ["t1", "staged-/cache/captures/IMG_2.jpg"]);
+});
