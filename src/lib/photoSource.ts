@@ -7,7 +7,7 @@ import { api, type StagedPhoto } from "./api";
 /** The device's zone in minutes east of UTC, for EXIF times that state none. */
 const utcOffsetMin = () => -new Date().getTimezoneOffset();
 
-async function pathFrom(command: "capture" | "pick_image"): Promise<string | null> {
+async function pathFrom(command: "capture" | "pick_image" | "take_recovered_capture"): Promise<string | null> {
   const r = await invoke<{ path?: string | null }>(`plugin:camera-capture|${command}`);
   return r.path ? r.path : null;
 }
@@ -17,6 +17,9 @@ export const capturePath = () => pathFrom("capture");
 
 /** System Photo Picker → path of the picked file (HEIC already converted), or null when cancelled. */
 export const pickPath = () => pathFrom("pick_image");
+
+/** A photo taken while Android killed the app (see the plugin), once; null when there is none. */
+export const recoveredCapturePath = () => pathFrom("take_recovered_capture");
 
 /** Process a file from the plugin: orientation, ≤ 1600 px JPEG, capture time. */
 export const stagePath = (path: string): Promise<StagedPhoto> => api.stagePhoto(path, utcOffsetMin());

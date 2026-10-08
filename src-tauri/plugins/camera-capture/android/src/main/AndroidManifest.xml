@@ -11,6 +11,16 @@
     </queries>
 
     <application>
+        <provider
+            android:name="com.checkflat.cameracapture.CaptureFileProvider"
+            android:authorities="${applicationId}.cameracapture"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/camera_capture_paths" />
+        </provider>
+
         <!-- Lets Play services install the modern Photo Picker on Android 4.4–10 devices that have it;
              devices without Play services fall back to ACTION_OPEN_DOCUMENT. -->
         <service

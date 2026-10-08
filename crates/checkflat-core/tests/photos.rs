@@ -298,3 +298,13 @@ fn an_observation_migrated_without_photos_opens_and_gets_its_first_photo_on_edit
     assert_eq!(o.description, "t");
     assert_eq!(photo_ids(&conn, "legacy").len(), 1);
 }
+
+#[test]
+fn staged_present_reports_only_files_that_exist() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = common::staged_photo(dir.path());
+    let b = common::staged_photo(dir.path());
+    photos::discard_staged(dir.path(), &b.token).unwrap();
+    let asked = vec![a.token.clone(), b.token.clone(), "../x".to_string(), checkflat_core::ids::new_id()];
+    assert_eq!(photos::staged_present(dir.path(), &asked), vec![a.token]);
+}

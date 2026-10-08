@@ -123,6 +123,16 @@ pub fn staged_path(data_dir: &Path, token: &str) -> Result<std::path::PathBuf> {
     Ok(staging_photo(token).resolve(data_dir))
 }
 
+/// Which of these tokens still have their staged file (the 24 h `tmp/` rule may have removed some).
+/// Anything that is not a token is reported as missing.
+pub fn staged_present(data_dir: &Path, tokens: &[String]) -> Vec<String> {
+    tokens
+        .iter()
+        .filter(|t| staged_path(data_dir, t).map(|p| p.is_file()).unwrap_or(false))
+        .cloned()
+        .collect()
+}
+
 /// Discard a staged photo (removed from the sheet, or the sheet was cancelled). A missing file is fine.
 pub fn discard_staged(data_dir: &Path, token: &str) -> Result<()> {
     match std::fs::remove_file(staged_path(data_dir, token)?) {

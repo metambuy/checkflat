@@ -1,11 +1,14 @@
 // Minimal screen state (no router): projects list, one project, its settings, one plan, dev screen.
 // Back (Android system back, Escape on desktop) first asks the current screen's handler, e.g. the
 // plan screen cancels a draft pin; otherwise it goes up one level.
+import type { SheetDraft } from "./sheet/draft";
+
 export type Screen =
   | { name: "projects" }
   | { name: "project"; id: string }
   | { name: "projectSettings"; id: string }
-  | { name: "plan"; projectId: string; planId: string }
+  /** `recovered`: an unsaved observation sheet restored after the app was killed (sheet/draft.ts). */
+  | { name: "plan"; projectId: string; planId: string; recovered?: SheetDraft }
   | { name: "dev" };
 
 const nav = $state<{ screen: Screen }>({ screen: { name: "projects" } });

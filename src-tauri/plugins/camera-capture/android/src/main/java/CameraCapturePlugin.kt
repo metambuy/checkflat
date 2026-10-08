@@ -2,6 +2,7 @@ package com.checkflat.cameracapture
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
@@ -36,8 +37,9 @@ import java.util.Locale
  * The app's Android bridge: system camera (`capture`), system Photo Picker (`pickImage`, no
  * storage permission) and display names of picked files. Both image commands resolve the path of
  * a file in the app cache, or no path when the user cancelled; HEIC/HEIF is converted to JPEG here
- * because the Rust decoder cannot read it. The capture uses the app's FileProvider (authority
- * "<applicationId>.fileprovider", declared by the Tauri Android template with cache-path ".").
+ * because the Rust decoder cannot read it. The capture writes through the plugin's own
+ * [CaptureFileProvider] (authority "<applicationId>.cameracapture", declared in this plugin's
+ * manifest, cache `captures/` only).
  */
 @InvokeArg
 class DisplayNameArgs {
@@ -106,17 +108,48 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         val dir = File(activity.cacheDir, CAPTURES).apply { mkdirs() }
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val file = File(dir, "IMG_$stamp.jpg")
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.$PROVIDER_SUFFIX", file)
 
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
             .putExtra(MediaStore.EXTRA_OUTPUT, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         pendingFile = file
+        // Persist the target before the camera opens: if Android kills this process while the
+        // camera is in front, the photo still lands in this file and `takeRecoveredCapture` finds it.
+        prefs().edit().putString(PENDING_CAPTURE, file.absolutePath).commit()
         try {
             startActivityForResult(invoke, intent, "onCaptureResult")
         } catch (e: ActivityNotFoundException) {
             pendingFile = null
+            prefs().edit().remove(PENDING_CAPTURE).commit()
             invoke.reject("no camera app available")
+        }
+    }
+
+    private fun prefs() = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * A photo taken while Android killed the app: Tauri drops the camera's result when the process
+     * was recreated (its callback died with it), but the file is on disk and its path was saved by
+     * `capture`. Resolves `{ path }` once (then forgets it), or nothing when there is none, the
+     * file is missing or empty, or a capture is live in this process (that one is not lost).
+     */
+    @Command
+    fun takeRecoveredCapture(invoke: Invoke) {
+        if (pendingFile != null) {
+            invoke.resolve(JSObject())
+            return
+        }
+        val saved = prefs().getString(PENDING_CAPTURE, null)
+        prefs().edit().remove(PENDING_CAPTURE).commit()
+        val file = saved?.let { File(it) }
+        val captures = File(activity.cacheDir, CAPTURES).canonicalPath + File.separator
+        if (file != null && file.isFile && file.length() > 0 && file.canonicalPath.startsWith(captures)) {
+            Log.i(TAG, "recovered a capture taken while the app was not running: ${file.name}")
+            invoke.resolve(JSObject().apply { put("path", file.absolutePath) })
+        } else {
+            file?.delete()
+            invoke.resolve(JSObject())
         }
     }
 
@@ -124,6 +157,7 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     fun onCaptureResult(invoke: Invoke, result: ActivityResult) {
         val file = pendingFile
         pendingFile = null
+        prefs().edit().remove(PENDING_CAPTURE).commit()
         if (result.resultCode != Activity.RESULT_OK || file == null || !file.exists() || file.length() == 0L) {
             file?.delete()
             invoke.resolve(JSObject()) // cancelled: no path
@@ -284,6 +318,9 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     private companion object {
         const val TAG = "CheckflatPick"
         const val LOST_RESULT_GRACE_MS = 1500L
+        const val PREFS = "camera-capture"
+        const val PENDING_CAPTURE = "pending_capture"
+        const val PROVIDER_SUFFIX = "cameracapture"
         const val CAPTURES = "captures"
         const val PICKS = "picks"
         const val TARGET_LONG_SIDE = 1600

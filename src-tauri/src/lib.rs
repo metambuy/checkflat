@@ -102,6 +102,7 @@ pub fn run() {
             commands::fractions::delete_fraction,
             commands::photos::stage_photo,
             commands::photos::discard_staged_photo,
+            commands::photos::existing_staged_photos,
             commands::photos::list_photos,
             commands::plans::stage_plan_source,
             commands::plans::import_plan,

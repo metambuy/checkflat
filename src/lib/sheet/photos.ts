@@ -19,7 +19,12 @@ export interface PhotoItem {
 
 export const noPhotos: PhotoSet = { existing: [], staged: [], removed: [] };
 
-export const withExisting = (s: PhotoSet, existing: Photo[]): PhotoSet => ({ ...s, existing });
+/** Stored photos arrived (edit mode); removals of photos that no longer exist (a restored draft) are dropped. */
+export const withExisting = (s: PhotoSet, existing: Photo[]): PhotoSet => ({
+  ...s,
+  existing,
+  removed: s.removed.filter((id) => existing.some((p) => p.id === id)),
+});
 
 export const addStaged = (s: PhotoSet, p: StagedPhoto): PhotoSet =>
   s.staged.some((x) => x.token === p.token) ? s : { ...s, staged: [...s.staged, p] };

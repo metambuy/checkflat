@@ -58,6 +58,12 @@ pub async fn discard_staged_photo(app: AppHandle, token: String) -> AppResult<()
     run_fs(app, move |dir| photos::discard_staged(dir, &token)).await
 }
 
+/// The subset of `tokens` whose staged file still exists (draft recovery after a restart).
+#[tauri::command]
+pub async fn existing_staged_photos(app: AppHandle, tokens: Vec<String>) -> AppResult<Vec<String>> {
+    run_fs(app, move |dir| Ok(photos::staged_present(dir, &tokens))).await
+}
+
 #[tauri::command]
 pub async fn list_photos(app: AppHandle, observation_id: String) -> AppResult<Vec<PhotoView>> {
     run_db(app, move |c, dir| {

@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { api } from "./lib/api";
   import { loadLang, t } from "./lib/i18n.svelte";
+  import { recoveredCapturePath, stagePath } from "./lib/photoSource";
+  import { DRAFT_KEY, recoverDraft } from "./lib/sheet/draft";
   import { onBackButtonPress } from "@tauri-apps/api/app";
   import type { PluginListener } from "@tauri-apps/api/core";
   import { back, go, screen } from "./lib/nav.svelte";
@@ -17,6 +20,31 @@
   let ready = $state(false);
   onMount(async () => {
     await loadLang();
+    // An observation sheet that was open when Android killed the app comes back, with the photo
+    // that was being taken behind the camera (Sprint 3b, D-007 a).
+    try {
+      const d = await recoverDraft({
+        loadRaw: () => api.getSetting(DRAFT_KEY),
+        takeCapture: recoveredCapturePath,
+        stage: stagePath,
+        existingTokens: (tokens) => api.existingStagedPhotos(tokens),
+        targetExists: async (d) => {
+          try {
+            const plan = await api.getPlan(d.planId);
+            if (plan.projectId !== d.projectId) return false;
+            if (d.mode === "edit") return (await api.listPins(d.planId)).some((o) => o.id === d.observationId);
+            return true;
+          } catch {
+            return false; // plan deleted since
+          }
+        },
+        clear: () => api.setSetting(DRAFT_KEY, ""),
+        now: () => Date.now(),
+      });
+      if (d) go({ name: "plan", projectId: d.projectId, planId: d.planId, recovered: d });
+    } catch (e) {
+      console.warn("[recovery] skipped", e);
+    }
     ready = true;
   });
   const s = $derived(screen());
@@ -55,7 +83,7 @@
   {:else if s.name === "projectSettings"}
     {#key s.id}<ProjectSettingsScreen id={s.id} />{/key}
   {:else if s.name === "plan"}
-    {#key s.planId}<PlanScreen projectId={s.projectId} planId={s.planId} />{/key}
+    {#key s.planId}<PlanScreen projectId={s.projectId} planId={s.planId} recovered={s.recovered ?? null} />{/key}
   {:else if devScreen}
     {#await devScreen then m}<m.default />{/await}
   {/if}

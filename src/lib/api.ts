@@ -164,6 +164,11 @@ export const api = {
   /** `source`: absolute path (Android plugin cache copy, Windows picker) or content:// URI. `utcOffsetMin`: minutes east of UTC. */
   stagePhoto: (source: string, utcOffsetMin: number) => invoke<StagedPhoto>("stage_photo", { source, utcOffsetMin }),
   discardStagedPhoto: (token: string) => invoke<void>("discard_staged_photo", { token }),
+  /** The subset of `tokens` whose staged file still exists. */
+  existingStagedPhotos: (tokens: string[]) => invoke<string[]>("existing_staged_photos", { tokens }),
+  /** Per-device settings (not part of project data). */
+  getSetting: (key: string) => invoke<string | null>("get_setting", { key }),
+  setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   listPhotos: (observationId: string) => invoke<Photo[]>("list_photos", { observationId }),
   /** The ref the next observation in `fraction` would get (stored settings). */
   previewRef: (projectId: string, fraction: string) => invoke<string>("preview_ref", { projectId, fraction }),

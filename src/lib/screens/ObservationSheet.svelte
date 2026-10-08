@@ -13,11 +13,14 @@
   import { capturePath, pickPath, stagePath } from "../photoSource";
   import { isAndroid } from "../platform";
   import { acquirePhoto, addStaged, canSave, noPhotos, removeExisting, removeStaged, shown, toSave, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
+  import type { SheetState } from "../sheet/draft";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
   let {
     projectId,
     observation = null,
+    initial = null,
+    onstate,
     saving,
     error,
     onsave,
@@ -27,6 +30,10 @@
     projectId: string;
     /** Edit mode: the observation being edited. */
     observation?: Observation | null;
+    /** A restored draft (after the app was killed): the input to start from. */
+    initial?: SheetState | null;
+    /** The sheet's input changed (debounced), or must be stored now (`immediate`, before the camera or picker opens). */
+    onstate?: (s: SheetState, immediate: boolean) => void | Promise<void>;
     saving: boolean;
     /** The failed save, shown here so the user can fix the input and retry. */
     error: AppError | null;
@@ -39,9 +46,9 @@
   // The mode and the starting text are fixed for the life of the sheet (the plan screen mounts a
   // new one per open), so reading them once is intended.
   const editing = untrack(() => observation !== null);
-  let fraction = $state("");
-  let description = $state(untrack(() => observation?.description ?? ""));
-  let photos = $state<PhotoSet>(noPhotos);
+  let fraction = $state(untrack(() => initial?.fraction ?? ""));
+  let description = $state(untrack(() => initial?.description ?? observation?.description ?? ""));
+  let photos = $state<PhotoSet>(untrack(() => (initial ? { existing: [], staged: initial.staged, removed: initial.removed } : noPhotos)));
   let phase = $state<Phase>("idle");
   const busy = $derived(phase !== "idle");
   let photoError = $state<AppError | null>(null);
@@ -66,6 +73,13 @@
   });
   $effect(() => {
     if (!editing) previewer.update(typed);
+  });
+
+  const snapshot = (): SheetState => ({ fraction, description, staged: photos.staged, removed: photos.removed });
+  // Every change of the input goes to the plan screen, which keeps the draft stored while the sheet is open.
+  $effect(() => {
+    const s = snapshot();
+    untrack(() => void onstate?.(s, false));
   });
 
   onMount(() => {
@@ -94,6 +108,12 @@
   async function add(getPath: () => Promise<string | null>) {
     if (busy || saving) return;
     photoError = null;
+    // The camera may be the last thing this process does: store the input first.
+    try {
+      await onstate?.(snapshot(), true);
+    } catch {
+      // not storing the draft must not stop the photo
+    }
     // "Processing" shows only once the camera/picker returned a file; every way out ends idle.
     const r = await acquirePhoto({ getPath, stage: stagePath }, (p) => (phase = p));
     if (r.staged) photos = addStaged(photos, r.staged);

@@ -103,3 +103,9 @@ test("the sheet cannot save while an add is in progress, and can again once it e
   assert.deepEqual(seen, [false], "disabled while the picker is open");
   assert.equal(canSave(s, busy), true, "enabled again after a cancel");
 });
+
+test("a restored draft's removals of photos that no longer exist are dropped", () => {
+  const s = withExisting({ ...noPhotos, removed: ["gone", "a"] }, [stored("a"), stored("b")]);
+  assert.deepEqual(s.removed, ["a"]);
+  assert.deepEqual(shown(s).map((p) => p.key), ["b"]);
+});

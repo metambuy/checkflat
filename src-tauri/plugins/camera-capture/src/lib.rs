@@ -38,7 +38,7 @@ impl<R: Runtime, T: Manager<R>> crate::CameraCaptureExt<R> for T {
 /// Initializes the plugin.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("camera-capture")
-        .invoke_handler(tauri::generate_handler![commands::capture, commands::pick_image, commands::display_name])
+        .invoke_handler(tauri::generate_handler![commands::capture, commands::take_recovered_capture, commands::pick_image, commands::display_name])
         .setup(|app, api| {
             #[cfg(mobile)]
             let camera_capture = mobile::init(app, api)?;

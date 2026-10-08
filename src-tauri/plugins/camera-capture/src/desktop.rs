@@ -18,6 +18,11 @@ impl<R: Runtime> CameraCapture<R> {
         Err(crate::Error::Unsupported)
     }
 
+    /// Nothing is ever lost behind a camera on desktop.
+    pub fn take_recovered_capture(&self) -> crate::Result<CaptureResponse> {
+        Ok(CaptureResponse::default())
+    }
+
     pub fn pick_image(&self) -> crate::Result<PickResponse> {
         Err(crate::Error::Unsupported)
     }
