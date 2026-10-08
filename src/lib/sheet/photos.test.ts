@@ -190,3 +190,14 @@ test("a restored draft's removals of photos that no longer exist are dropped", (
   assert.deepEqual(s.removed, ["a"]);
   assert.deepEqual(shown(s).map((p) => p.key), ["b"]);
 });
+
+test("a return watcher that fails to start still ends idle, with the error", async () => {
+  const { phases, onPhase } = track();
+  const boom = new Error("no events here");
+  const r = await acquirePhoto(
+    { getPath: async () => "/p.jpg", stage: async (p) => staged(p), watchReturn: () => { throw boom; } },
+    onPhase,
+  );
+  assert.deepEqual(r, { staged: null, error: boom });
+  assert.deepEqual(phases, ["picking", "idle"], "never stuck on 'picking'");
+});

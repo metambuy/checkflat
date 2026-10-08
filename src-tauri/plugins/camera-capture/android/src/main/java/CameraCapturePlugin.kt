@@ -324,6 +324,7 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         const val CAPTURES = "captures"
         const val PICKS = "picks"
         const val TARGET_LONG_SIDE = 1600
-        val HEIF_BRANDS = setOf("heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1")
+        // Keep in step with `is_heif` in crates/checkflat-core/src/photos.rs.
+        val HEIF_BRANDS = setOf("heic", "heix", "hevc", "hevx", "hevm", "hevs", "heim", "heis", "mif1", "mif2", "msf1")
     }
 }

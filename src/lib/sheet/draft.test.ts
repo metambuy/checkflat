@@ -1,6 +1,6 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { createDraftSaver, MAX_AGE_MS, parseDraft, recoverDraft, serializeDraft, type RecoveryDeps, type SheetDraft } from "./draft.ts";
+import { createDraftSaver, MAX_AGE_MS, parseDraft, recoverDraft, restoreTarget, serializeDraft, type RecoveryDeps, type SheetDraft } from "./draft.ts";
 
 const NOW = 1_800_000_000_000;
 const photo = (t: string) => ({ token: t, path: `/data/tmp/${t}.jpg`, takenAt: "2026-10-08T09:00:00.000Z" });
@@ -124,4 +124,25 @@ test("recovery: an edit draft keeps its observation and removed photos", async (
   const r = await recoverDraft(deps({ loadRaw: async () => serializeDraft(e) }));
   assert.equal(r?.observationId, "o1");
   assert.deepEqual(r?.removed, ["ph1"]);
+});
+
+test("saver: a failing write is reported, and later writes still go out", async () => {
+  const errors: unknown[] = [];
+  const puts: string[] = [];
+  let fail = true;
+  const s = createDraftSaver(async (r) => { if (fail) throw new Error("db locked"); puts.push(r); }, 400, (e) => errors.push(e));
+  await s.flush(draft({ description: "a" }));
+  assert.equal(errors.length, 1, "the failure is not swallowed");
+  assert.equal((errors[0] as Error).message, "db locked");
+  fail = false;
+  await s.flush(draft({ description: "b" }));
+  assert.deepEqual(puts.map((r) => JSON.parse(r).description), ["b"], "the chain survived the failure");
+  assert.equal(errors.length, 1);
+});
+
+test("restore: a create draft reopens the create sheet; an edit draft only if its pin still exists", () => {
+  assert.deepEqual(restoreTarget(draft(), []), { sheet: "create", selectedId: null });
+  const edit = draft({ mode: "edit", observationId: "o1" });
+  assert.deepEqual(restoreTarget(edit, ["o0", "o1"]), { sheet: "edit", selectedId: "o1" });
+  assert.equal(restoreTarget(edit, ["o0"]), null, "the pin is gone: nothing to restore (the draft must be dropped, not kept for another sheet)");
 });

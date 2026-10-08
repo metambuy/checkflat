@@ -76,6 +76,12 @@ export function parseDraft(raw: string | null | undefined, now: number): SheetDr
   };
 }
 
+/** What the plan screen does with a restored draft, given the ids of the plan's pins: reopen the create sheet, reopen the edit sheet of a pin that still exists, or nothing (the draft is dropped). */
+export function restoreTarget(d: SheetDraft, pinIds: string[]): { sheet: "create" | "edit"; selectedId: string | null } | null {
+  if (d.mode === "create") return { sheet: "create", selectedId: null };
+  return d.observationId !== null && pinIds.includes(d.observationId) ? { sheet: "edit", selectedId: d.observationId } : null;
+}
+
 export interface DraftSaver {
   /** Write soon (coalesces rapid changes). */
   schedule(d: SheetDraft): void;
@@ -86,11 +92,13 @@ export interface DraftSaver {
 }
 
 /** Debounced, ordered writes: a clear can never be overtaken by an earlier write. */
-export function createDraftSaver(put: (raw: string) => Promise<void>, delayMs = 400): DraftSaver {
+export function createDraftSaver(put: (raw: string) => Promise<void>, delayMs = 400, onError?: (e: unknown) => void): DraftSaver {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let latest: SheetDraft | null = null;
   let chain: Promise<void> = Promise.resolve();
-  const enqueue = (raw: string) => (chain = chain.then(() => put(raw)).catch(() => {}));
+  // A failed write must not break the chain (later writes still go out), but it must be heard:
+  // a draft that is never stored means recovery silently does not work.
+  const enqueue = (raw: string) => (chain = chain.then(() => put(raw)).catch((e) => onError?.(e)));
   const cancelTimer = () => {
     if (timer !== null) clearTimeout(timer);
     timer = null;

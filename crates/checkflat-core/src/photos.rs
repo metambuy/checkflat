@@ -58,7 +58,7 @@ fn unreadable(e: impl std::fmt::Display) -> CoreError {
 fn is_heif(bytes: &[u8]) -> bool {
     bytes.len() >= 12
         && &bytes[4..8] == b"ftyp"
-        && matches!(&bytes[8..12], b"heic" | b"heix" | b"hevc" | b"hevx" | b"heim" | b"heis" | b"mif1" | b"msf1")
+        && matches!(&bytes[8..12], b"heic" | b"heix" | b"hevc" | b"hevx" | b"hevm" | b"hevs" | b"heim" | b"heis" | b"mif1" | b"mif2" | b"msf1")
 }
 
 /// Decode, apply EXIF orientation, downsize, re-encode. `utc_offset_min` (minutes east of UTC) is
@@ -208,10 +208,18 @@ mod tests {
 
     #[test]
     fn heif_brands_are_recognised() {
-        let mut b = vec![0, 0, 0, 24];
-        b.extend_from_slice(b"ftypheic");
-        b.extend_from_slice(&[0; 8]);
-        assert!(is_heif(&b));
+        // Every HEIF/HEIC major brand (keep in step with HEIF_BRANDS in CameraCapturePlugin.kt).
+        for brand in [b"heic", b"heix", b"hevc", b"hevx", b"hevm", b"hevs", b"heim", b"heis", b"mif1", b"mif2", b"msf1"] {
+            let mut b = vec![0, 0, 0, 24];
+            b.extend_from_slice(b"ftyp");
+            b.extend_from_slice(brand);
+            b.extend_from_slice(&[0; 8]);
+            assert!(is_heif(&b), "{}", String::from_utf8_lossy(brand));
+        }
         assert!(!is_heif(b"\xff\xd8\xff\xe0\x00\x10JFIF\0\x01\x01\x00"));
+        let mut mp4 = vec![0, 0, 0, 24];
+        mp4.extend_from_slice(b"ftypisom");
+        mp4.extend_from_slice(&[0; 8]);
+        assert!(!is_heif(&mp4), "a plain MP4 is not an image");
     }
 }

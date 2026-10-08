@@ -20,7 +20,8 @@
   import { revertMove, withPosition } from "../viewer/pins";
   import type { Point } from "../viewer/coords";
   import { devlog } from "../devlog";
-  import { createDraftSaver, DRAFT_KEY, type SheetDraft, type SheetState } from "../sheet/draft";
+  import { createDraftSaver, DRAFT_KEY, restoreTarget, type SheetDraft, type SheetState } from "../sheet/draft";
+  import { saveThenRefresh } from "../sheet/flow";
 
   type SheetPhotos = { photos: { token: string; takenAt: string }[]; removed: string[] };
 
@@ -29,7 +30,7 @@
   // killing the app, e.g. behind the camera (sheet/draft.ts).
   // Seeds the first sheet only; closing it (save, cancel, Back) ends the restore.
   let restoredDraft = $state<SheetDraft | null>(untrack(() => recovered));
-  const saver = createDraftSaver((raw) => api.setSetting(DRAFT_KEY, raw));
+  const saver = createDraftSaver((raw) => api.setSetting(DRAFT_KEY, raw), 400, (e) => console.warn("[draft] could not store the sheet draft", e));
 
   let plan = $state<Plan | null>(null);
   let info = $state<TileInfo | null>(null);
@@ -81,6 +82,7 @@
     setBackHandler(() => {
       switch (backStep({ dialog: toDelete !== null, sheet: sheet !== null, adding: ds.adding, draft: ds.draft !== null, saving: ds.saving || editSaving, selected: selectedId !== null })) {
         case "dialog": toDelete = null; return true;
+        case "busy": return true; // a save is in flight: Back does nothing
         case "sheet": closeSheet(); return true;
         case "draft": ds = cancel(ds); return true;
         case "selection": selectedId = null; return true;
@@ -117,11 +119,16 @@
 
   /** The sheet that was open when the app was killed comes back with its input and photos. */
   function restoreSheet(d: SheetDraft) {
-    if (d.mode === "create") {
+    const target = restoreTarget(d, pins.map((p) => p.id));
+    if (!target) {
+      // Nothing to reopen it on: drop it, so it can never seed another observation's sheet.
+      restoredDraft = null;
+      void saver.clear();
+    } else if (target.sheet === "create") {
       ds = { adding: false, draft: { x: d.x, y: d.y }, saving: false };
       sheet = "create";
-    } else if (pins.some((p) => p.id === d.observationId)) {
-      selectedId = d.observationId;
+    } else {
+      selectedId = target.selectedId;
       sheet = "edit";
     }
   }
@@ -171,11 +178,13 @@
     sheetError = null;
     editSaving = true;
     try {
-      await api.updateObservation(pin.id, description, photos.photos, photos.removed);
-      pins = await api.listPins(planId);
-      closeSheet();
-    } catch (e) {
-      sheetError = asAppError(e);
+      await saveThenRefresh({
+        save: async () => void (await api.updateObservation(pin.id, description, photos.photos, photos.removed)),
+        onSaved: closeSheet,
+        refresh: async () => void (pins = await api.listPins(planId)),
+        onSaveError: (e) => (sheetError = asAppError(e)),
+        onRefreshError: (e) => (error = asAppError(e)),
+      });
     } finally {
       editSaving = false;
     }

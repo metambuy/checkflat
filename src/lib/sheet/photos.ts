@@ -115,12 +115,14 @@ export async function acquirePhoto(
   onPhase: (p: Phase) => void,
 ): Promise<{ staged: StagedPhoto | null; error: unknown }> {
   let finished = false;
+  let watch: ReturnWatch | undefined;
   onPhase("picking");
-  const watch = source.watchReturn?.();
-  void watch?.returned.then(() => {
-    if (!finished) onPhase("preparing");
-  });
   try {
+    // Inside the try: whatever fails here still ends in "idle".
+    watch = source.watchReturn?.();
+    void watch?.returned.then(() => {
+      if (!finished) onPhase("preparing");
+    });
     const path = await source.getPath();
     if (!path) return { staged: null, error: null };
     onPhase("preparing");
