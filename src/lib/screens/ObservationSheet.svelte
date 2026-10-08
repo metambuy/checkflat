@@ -12,7 +12,8 @@
   import { livePreview } from "../livePreview";
   import { capturePath, pickPath, stagePath } from "../photoSource";
   import { isAndroid } from "../platform";
-  import { acquirePhoto, addStaged, canSave, noPhotos, removeExisting, removeStaged, shown, toSave, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
+  import { acquirePhoto, addStaged, canSave, noPhotos, removeExisting, removeStaged, shown, toSave, watchReturn, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
+  import { devlog } from "../devlog";
   import type { SheetState } from "../sheet/draft";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
@@ -114,8 +115,15 @@
     } catch {
       // not storing the draft must not stop the photo
     }
-    // "Processing" shows only once the camera/picker returned a file; every way out ends idle.
-    const r = await acquirePhoto({ getPath, stage: stagePath }, (p) => (phase = p));
+    // "Preparing photo…" from the moment the camera/picker hands control back until the file is
+    // processed (HEIC conversion, cloud download); every way out ends idle.
+    const r = await acquirePhoto(
+      { getPath, stage: stagePath, watchReturn: () => watchReturn(window, document) },
+      (p) => {
+        phase = p;
+        devlog(`photo: ${p}`);
+      },
+    );
     if (r.staged) photos = addStaged(photos, r.staged);
     if (r.error) photoError = asAppError(r.error);
   }
@@ -188,7 +196,7 @@
           <button type="button" onclick={() => add(capturePath)} disabled={busy || saving}>{t("photos.camera")}</button>
         {/if}
         <button type="button" onclick={() => add(pickPath)} disabled={busy || saving}>{t("photos.gallery")}</button>
-        {#if phase === "processing"}<span class="muted" aria-live="polite">{t("photos.processing")}</span>{/if}
+        {#if phase === "preparing"}<span class="muted" aria-live="polite">{t("photos.preparing")}</span>{/if}
       </div>
       {#if !busy && shown(photos).length === 0}
         <p class="hint">{t("photos.hint")}</p>

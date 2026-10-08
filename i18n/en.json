@@ -81,7 +81,7 @@
   "photos.title": "Photos",
   "photos.camera": "Camera",
   "photos.gallery": "Gallery",
-  "photos.processing": "Processing photo…",
+  "photos.preparing": "Preparing photo…",
   "photos.hint": "Add at least one photo.",
   "photos.remove": "Remove photo",
   "photos.thumb": "Photo {n}",
