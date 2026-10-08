@@ -105,7 +105,7 @@ Note: observations belong to the project (not one visit) so they can carry over;
 
 ### M2 — Observations & photos
 - **Sprint 3a** ✅ (2026-10-05): **ref format migration (D-020)**, without waiting for the client's exact format (every open answer is a project setting): `project.code`, per-project template (`{PROJ}` `{FRAC}` `{SEQ:n}`), sequence scope per fraction or per project, per-project fraction list, `observation.fraction` + `observation.seq` + `seq_key`; `project.next_ref_no`, `logo_path` and `UNIQUE(project_id, ref_no)` dropped; `assign_ref` swapped. Observation sheet (fraction type-to-add, description) replaces the Sprint 2 Confirm; project settings screen (code, template with live preview, scope, fractions).
-- **Sprint 3b** ✅ (2026-10-08): **fixed release signing** (D-021: CI ships a signed arm64 release APK, versionCode = run number, so builds install over each other); photos on the observation sheet (camera or system Photo Picker, Windows file picker; ≥ 1 photo on create and edit; edit mode for description + photos; Rust resize to ≤ 1600 px JPEG with EXIF orientation and date; HEIC converted on Android; no migration 3) and the D-007 camera follow-ups (D-022).
+- **Sprint 3b** ✅ (2026-10-08): **fixed release signing** (D-021: CI ships a signed arm64 release APK, versionCode = run number, so builds install over each other); photos on the observation sheet (camera or system Photo Picker, Windows file picker — its manual exit test moves to before v0.1, with the Sprint 6 super review; ≥ 1 photo on create and edit; edit mode for description + photos; Rust resize to ≤ 1600 px JPEG with EXIF orientation and date; HEIC converted on Android; no migration 3) and the D-007 camera follow-ups (D-022).
   - Camera plugin follow-ups deferred from the Sprint 0 code review (see decisions D-007): (a) ✅ persist the pending capture path so a photo survives the app being killed behind the camera (the open sheet is stored too and restored); (b) ✅ self-contained FileProvider (own subclass, `file_paths.xml` and `<provider>` in the plugin manifest) instead of relying on the Tauri app template; (c) ~~decide `assetProtocol` vs base64 for showing photos~~ resolved in Sprint 2: asset protocol, scope `projects/**` (D-015).
   - Backlog from Sprint 3a: editing the fraction/description of an existing observation (changing the fraction must keep `seq_key` consistent); the pin list panel could show the description.
 - **Sprint 4**: photo annotation (ellipse, arrow, freehand); observation list + jump-to-pin.
@@ -116,6 +116,7 @@ Note: observations belong to the project (not one visit) so they can carry over;
 - **Sprint 5**: plan crop + overview snapshots; report template (cover + blocks) in EN/PT.
   - Client 2026-10-01: open observations newest first; no logo; attendees only if filled; 20–50 pages typical.
 - **Sprint 6**: share/save on Android and Windows; performance at 50 observations.
+  - **Before v0.1, together with the end-of-Sprint-6 super review:** the manual Windows exit test deferred from Sprint 3b (add a photo from a file, save, restart; D-022). The Windows CI job stays a required check meanwhile.
 - *Exit*: report matches the Aproplan sample. **→ v0.1, field test with friend**
 
 ### M4 — Follow-ups & transfer (MVP complete)
