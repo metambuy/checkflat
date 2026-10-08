@@ -69,10 +69,10 @@ Offline-first app for real-estate site visits: load PDF plans, drop numbered pin
 | Plan snapshots | Rust stitches crops from the tiles (`image` crate), draws pin/box → PNG | No WebView or PDF.js at report time; same on Windows (D-014) |
 | Photo annotation | Canvas overlay; shapes stored as JSON; flattened at report time | Non-destructive edits |
 | Storage | SQLite (`rusqlite`) + files in app data dir | Offline, portable |
-| Images | Rust `image` crate: resize to ~1600 px JPEG, keep EXIF date | Small reports |
+| Images | Rust `image` crate: EXIF orientation applied, resize to ≤ 1600 px JPEG q85, EXIF date kept as `taken_at`, stored without EXIF (D-022) | Small reports |
 | Report | Rust: embedded **Typst** or `printpdf` (decide in spike) | Templated layout, EN/PT |
 | Transfer | Project archive: `.zip` with SQLite export + files | Simple phone → laptop move |
-| Camera | `<input capture>` first; fallback Tauri mobile plugin (Kotlin) | Android WebView camera capture is unreliable in hybrid apps |
+| Camera / gallery | Tauri mobile plugin (Kotlin): `ACTION_IMAGE_CAPTURE` into its own FileProvider, system Photo Picker, HEIC → JPEG conversion; Windows: file picker | `<input capture>` opens the Photo Picker in the Android WebView (D-003); the plugin is the Android bridge (D-022) |
 | i18n | Shared EN/PT string files for UI + report | One source of truth |
 | CI | GitHub Actions: Android APK + Windows installer | Dev machine is macOS |
 
@@ -105,8 +105,8 @@ Note: observations belong to the project (not one visit) so they can carry over;
 
 ### M2 — Observations & photos
 - **Sprint 3a** ✅ (2026-10-05): **ref format migration (D-020)**, without waiting for the client's exact format (every open answer is a project setting): `project.code`, per-project template (`{PROJ}` `{FRAC}` `{SEQ:n}`), sequence scope per fraction or per project, per-project fraction list, `observation.fraction` + `observation.seq` + `seq_key`; `project.next_ref_no`, `logo_path` and `UNIQUE(project_id, ref_no)` dropped; `assign_ref` swapped. Observation sheet (fraction type-to-add, description) replaces the Sprint 2 Confirm; project settings screen (code, template with live preview, scope, fractions).
-- **Sprint 3b**: photos on the observation sheet (camera or gallery, ≥ 1 photo rule); image compression.
-  - Camera plugin follow-ups deferred from the Sprint 0 code review (see decisions D-007): (a) persist the pending capture path so a photo survives the app being killed behind the camera; (b) self-contained FileProvider (own subclass, `file_paths.xml` and `<provider>` in the plugin manifest) instead of relying on the Tauri app template; (c) ~~decide `assetProtocol` vs base64 for showing photos~~ resolved in Sprint 2: asset protocol, scope `projects/**` (D-015).
+- **Sprint 3b** ✅ (2026-10-08): **fixed release signing** (D-021: CI ships a signed arm64 release APK, versionCode = run number, so builds install over each other); photos on the observation sheet (camera or system Photo Picker, Windows file picker; ≥ 1 photo on create and edit; edit mode for description + photos; Rust resize to ≤ 1600 px JPEG with EXIF orientation and date; HEIC converted on Android; no migration 3) and the D-007 camera follow-ups (D-022).
+  - Camera plugin follow-ups deferred from the Sprint 0 code review (see decisions D-007): (a) ✅ persist the pending capture path so a photo survives the app being killed behind the camera (the open sheet is stored too and restored); (b) ✅ self-contained FileProvider (own subclass, `file_paths.xml` and `<provider>` in the plugin manifest) instead of relying on the Tauri app template; (c) ~~decide `assetProtocol` vs base64 for showing photos~~ resolved in Sprint 2: asset protocol, scope `projects/**` (D-015).
   - Backlog from Sprint 3a: editing the fraction/description of an existing observation (changing the fraction must keep `seq_key` consistent); the pin list panel could show the description.
 - **Sprint 4**: photo annotation (ellipse, arrow, freehand); observation list + jump-to-pin.
   - Backlog from Sprint 2: pins overlap at fit when many are close together (smaller markers or clustering at low zoom); the import dialog still says "Choose a PDF…" for the ~3 s the picker result takes on EMUI (show "Reading PDF…" as soon as the picker closes). Tile cache: one fsync pass per level in `write_manifest` instead of one per tile (D-019: ≈ +10 s on the A1 plan's one-off preparation on the P30).
@@ -139,6 +139,6 @@ Note: observations belong to the project (not one visit) so they can carry over;
 | Camera capture in Android WebView | Spike in Sprint 0; Kotlin plugin fallback |
 | A1 plans → lag / memory on phone | Import-time tile pyramid measured on a real phone: first view < 0.2 s, 221 MB at 8× (D-014). Remaining risk: ~1.4 GB one-off peak while generating tiles; generation is foreground, resumable per level |
 | Archive import conflicts (same project on two devices) | v1: import creates a copy or overwrites after confirm; real sync later |
-| HyperOS (Xiaomi 15) kills background apps aggressively | Tile generation stays resumable per level (D-014): a kill costs at most one level and the plan opens once the 1024 level exists. Sprint 3b: pending camera capture must survive process death (D-007 a) |
+| HyperOS (Xiaomi 15) kills background apps aggressively | Tile generation stays resumable per level (D-014): a kill costs at most one level and the plan opens once the 1024 level exists. Sprint 3b: a pending camera capture and the open observation sheet survive process death (D-022, verified by killing the process behind the camera) |
 | No Android device on hand | Emulator + a cheap test phone, or friend's device |
 | Windows build from macOS | GitHub Actions Windows runner |
