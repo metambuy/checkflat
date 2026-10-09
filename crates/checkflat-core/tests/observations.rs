@@ -30,7 +30,7 @@ fn next_seq(conn: &Connection, project_id: &str) -> i64 {
 }
 
 fn create(conn: &Connection, plan: &Plan, fraction: &str) -> checkflat_core::Result<checkflat_core::models::Observation> {
-    observations::create_observation(conn, &plan.id, 0.5, 0.5, fraction, "")
+    observations::create_observation(conn, &common::data_dir_of(conn), &plan.id, 0.5, 0.5, fraction, "", &common::one_photo(conn))
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn project_scope_takes_consecutive_numbers_and_renders_refs() {
     assert_eq!(next_seq(&conn, &plan.project_id), 1);
     let pins: Vec<_> = [(0.1, 0.2), (0.5, 0.5), (1.0, 0.0)]
         .iter()
-        .map(|&(x, y)| observations::create_observation(&conn, &plan.id, x, y, "", " first ").unwrap())
+        .map(|&(x, y)| observations::create_observation(&conn, dir.path(), &plan.id, x, y, "", " first ", &common::one_photo(&conn)).unwrap())
         .collect();
     assert_eq!(pins.iter().map(|o| o.seq).collect::<Vec<_>>(), vec![1, 2, 3]);
     assert_eq!(pins[0].description, "first");
@@ -117,13 +117,13 @@ fn invalid_input_is_rejected_without_side_effects() {
     let dir = tempfile::tempdir().unwrap();
     let (conn, plan) = setup(dir.path());
     for (x, y) in [(-0.01, 0.5), (0.5, 1.01), (f64::NAN, 0.5), (f64::INFINITY, 0.0)] {
-        let err = observations::create_observation(&conn, &plan.id, x, y, "", "").unwrap_err();
+        let err = observations::create_observation(&conn, dir.path(), &plan.id, x, y, "", "", &common::one_photo(&conn)).unwrap_err();
         assert!(matches!(err, CoreError::Validation(_)), "{x},{y}: {err}");
     }
     assert!(matches!(create(&conn, &plan, "a b"), Err(CoreError::Validation(_))), "bad fraction code");
     assert_eq!(next_seq(&conn, &plan.project_id), 1);
     assert!(fractions::list(&conn, &plan.project_id).unwrap().is_empty());
-    assert!(matches!(observations::create_observation(&conn, "missing", 0.5, 0.5, "", ""), Err(CoreError::NotFound)));
+    assert!(matches!(observations::create_observation(&conn, dir.path(), "missing", 0.5, 0.5, "", "", &common::one_photo(&conn)), Err(CoreError::NotFound)));
     let pin = create(&conn, &plan, "").unwrap();
     assert!(matches!(observations::move_pin(&conn, &pin.id, 2.0, 0.5), Err(CoreError::Validation(_))));
     assert_eq!(observations::get(&conn, &pin.id).unwrap().x_norm, 0.5);
@@ -175,19 +175,19 @@ fn deleted_numbers_are_not_reused_in_either_scope() {
     assert!(moved.updated_at >= a.updated_at);
     // The plan cannot be deleted while it has pins.
     assert!(matches!(plans::delete(&conn, data, &plan.id), Err(CoreError::PlanHasObservations { count: 2 })));
-    observations::delete_pin(&conn, &b.id).unwrap();
-    assert!(matches!(observations::delete_pin(&conn, &b.id), Err(CoreError::NotFound)));
+    observations::delete_pin(&conn, &common::data_dir_of(&conn), &b.id).unwrap();
+    assert!(matches!(observations::delete_pin(&conn, &common::data_dir_of(&conn), &b.id), Err(CoreError::NotFound)));
     assert!(matches!(observations::move_pin(&conn, &b.id, 0.5, 0.5), Err(CoreError::NotFound)));
     assert_eq!(create(&conn, &plan, "").unwrap().seq, 3);
 
     let dir2 = tempfile::tempdir().unwrap();
     let (conn, plan) = setup_fraction_scope(dir2.path());
     let a1 = create(&conn, &plan, "A").unwrap();
-    observations::delete_pin(&conn, &a1.id).unwrap();
+    observations::delete_pin(&conn, &common::data_dir_of(&conn), &a1.id).unwrap();
     assert_eq!(create(&conn, &plan, "A").unwrap().display_ref, "LAM-A-02");
     // Deleting every observation does not reset anything either.
     for o in observations::list_for_plan(&conn, &plan.id).unwrap() {
-        observations::delete_pin(&conn, &o.id).unwrap();
+        observations::delete_pin(&conn, &common::data_dir_of(&conn), &o.id).unwrap();
     }
     assert_eq!(create(&conn, &plan, "A").unwrap().display_ref, "LAM-A-03");
 }
@@ -199,7 +199,7 @@ fn fraction_delete_only_when_it_never_issued_a_number() {
     let a1 = create(&conn, &plan, "A").unwrap();
     let a = fractions::find(&conn, &plan.project_id, "a").unwrap().unwrap();
     assert!(matches!(fractions::delete(&conn, &a.id), Err(CoreError::FractionInUse { count: 1 })));
-    observations::delete_pin(&conn, &a1.id).unwrap();
+    observations::delete_pin(&conn, &common::data_dir_of(&conn), &a1.id).unwrap();
     assert!(matches!(fractions::delete(&conn, &a.id), Err(CoreError::FractionInUse { count: 0 })), "issued a number once");
     assert_eq!(create(&conn, &plan, "A").unwrap().display_ref, "LAM-A-02");
     // A fraction added from settings and never used can go.
@@ -249,7 +249,7 @@ fn scope_locks_once_a_number_was_issued() {
     assert_eq!(p.code, "OBR");
     assert_eq!(observations::get(&conn, &only.id).unwrap().display_ref, "OBR#001");
     // Deleting the only observation keeps the lock: the number was issued.
-    observations::delete_pin(&conn, &only.id).unwrap();
+    observations::delete_pin(&conn, &common::data_dir_of(&conn), &only.id).unwrap();
     let p = projects::get(&conn, &pid).unwrap();
     assert!((p.scope_locked, p.observation_count) == (true, 0));
     assert!(matches!(
@@ -261,7 +261,7 @@ fn scope_locks_once_a_number_was_issued() {
     let dir2 = tempfile::tempdir().unwrap();
     let (conn, plan) = setup_fraction_scope(dir2.path());
     let a1 = create(&conn, &plan, "A").unwrap();
-    observations::delete_pin(&conn, &a1.id).unwrap();
+    observations::delete_pin(&conn, &common::data_dir_of(&conn), &a1.id).unwrap();
     assert!(projects::get(&conn, &plan.project_id).unwrap().scope_locked);
 }
 

@@ -10,6 +10,7 @@ pub mod migrations;
 pub mod models;
 pub mod paths;
 pub mod pdf;
+pub mod photos;
 pub mod refs;
 pub mod repo;
 

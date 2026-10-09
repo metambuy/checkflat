@@ -2,11 +2,15 @@
 //! the observation sheet and the only place a sequence number is taken, so a cancelled draft never
 //! leaves a gap. How the number is chosen lives in [`assign_ref`] alone (D-020): per project or
 //! per fraction, from a counter that only ever grows, so deleted numbers are never reused.
+use std::path::Path;
+
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::models::{Observation, Project};
+use crate::paths::RelPath;
+use crate::photos::PhotoInput;
 use crate::refs::{self, Scope, Template};
-use crate::repo::{fractions, plans, projects};
+use crate::repo::{fractions, photos, plans, projects};
 use crate::{clock, ids, CoreError, Result};
 
 fn check_pos(x: f64, y: f64) -> Result<()> {
@@ -119,15 +123,23 @@ fn assign_ref(tx: &Connection, project: &Project, fraction: &str, now: &str) -> 
 
 /// Save of the observation sheet: in one transaction add the fraction if it is new
 /// ([`fractions::ensure`], whose canonical code is what gets stored), assign the ref
-/// ([`assign_ref`]) and insert the observation. On any error nothing changes.
+/// ([`assign_ref`]), insert the observation and move its staged photos in
+/// ([`photos::attach`]); at least one photo is required. On any error nothing changes (staged
+/// files are back in `tmp/`).
+#[allow(clippy::too_many_arguments)]
 pub fn create_observation(
     conn: &Connection,
+    data_dir: &Path,
     plan_id: &str,
     x: f64,
     y: f64,
     fraction: &str,
     description: &str,
+    new_photos: &[PhotoInput],
 ) -> Result<Observation> {
+    if new_photos.is_empty() {
+        return Err(CoreError::PhotoRequired);
+    }
     check_pos(x, y)?;
     let fraction = refs::validate_code(fraction)?;
     let plan = plans::get(conn, plan_id)?;
@@ -145,8 +157,58 @@ pub fn create_observation(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
         params![id, project.id, plan_id, fraction, seq, seq_key, x, y, description.trim(), now],
     )?;
-    tx.commit()?;
+    let moved = photos::attach(&tx, data_dir, &project.id, &id, new_photos, &now)?;
+    if let Err(e) = tx.commit() {
+        photos::revert(&moved);
+        return Err(e.into());
+    }
     get(conn, &id)
+}
+
+/// Save of the sheet in edit mode: the description and the photos (add the staged ones, remove
+/// the listed ids). The fraction, and so the ref, never change here. The observation must keep at
+/// least one photo, which an observation migrated from Sprint 3a (none) satisfies by adding one.
+/// One transaction: on any error the rows are unchanged and staged files are back in `tmp/`;
+/// removed files are deleted after the commit (row first, D-010).
+pub fn update_observation(
+    conn: &Connection,
+    data_dir: &Path,
+    id: &str,
+    description: &str,
+    new_photos: &[PhotoInput],
+    remove_ids: &[String],
+) -> Result<Observation> {
+    let obs = get(conn, id)?;
+    let existing = photos::list_for_observation(conn, id)?;
+    let mut removed: Vec<&crate::models::Photo> = Vec::new();
+    for rid in remove_ids {
+        let Some(p) = existing.iter().find(|p| &p.id == rid) else {
+            return Err(CoreError::Validation(format!("photo {rid} does not belong to this observation")));
+        };
+        if !removed.iter().any(|r| r.id == p.id) {
+            removed.push(p);
+        }
+    }
+    if existing.len() - removed.len() + new_photos.len() == 0 {
+        return Err(CoreError::PhotoRequired);
+    }
+    let now = clock::now_iso();
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE observation SET description = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, description.trim(), now],
+    )?;
+    for p in &removed {
+        tx.execute("DELETE FROM photo WHERE id = ?1", [&p.id])?;
+    }
+    let moved = photos::attach(&tx, data_dir, &obs.project_id, id, new_photos, &now)?;
+    if let Err(e) = tx.commit() {
+        photos::revert(&moved);
+        return Err(e.into());
+    }
+    let files: Vec<RelPath> = removed.iter().map(|p| p.file_path.clone()).collect();
+    photos::remove_files(data_dir, &files);
+    get(conn, id)
 }
 
 pub fn move_pin(conn: &Connection, id: &str, x: f64, y: f64) -> Result<Observation> {
@@ -161,11 +223,14 @@ pub fn move_pin(conn: &Connection, id: &str, x: f64, y: f64) -> Result<Observati
     get(conn, id)
 }
 
-/// Deletes a confirmed pin (photos cascade in the DB). Its number is not reused.
-pub fn delete_pin(conn: &Connection, id: &str) -> Result<()> {
+/// Deletes a confirmed pin: the row first (its photo rows cascade), then the photo files. Its
+/// number is not reused.
+pub fn delete_pin(conn: &Connection, data_dir: &Path, id: &str) -> Result<()> {
+    let files: Vec<RelPath> = photos::list_for_observation(conn, id)?.into_iter().map(|p| p.file_path).collect();
     let n = conn.execute("DELETE FROM observation WHERE id = ?1", [id])?;
     if n == 0 {
         return Err(CoreError::NotFound);
     }
+    photos::remove_files(data_dir, &files);
     Ok(())
 }

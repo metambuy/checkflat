@@ -27,6 +27,17 @@ impl<R: Runtime> CameraCapture<R> {
         self.0.run_mobile_plugin("capture", ()).map_err(Into::into)
     }
 
+    /// A capture that finished while the app was not running (see the Kotlin side); `None` path when there is none.
+    pub fn take_recovered_capture(&self) -> crate::Result<CaptureResponse> {
+        self.0.run_mobile_plugin("takeRecoveredCapture", ()).map_err(Into::into)
+    }
+
+    /// Opens the system Photo Picker and blocks until the user picks an image or cancels.
+    /// Must not be called on the main thread (use an async command).
+    pub fn pick_image(&self) -> crate::Result<PickResponse> {
+        self.0.run_mobile_plugin("pickImage", ()).map_err(Into::into)
+    }
+
     /// Display name of a `content://` or `file://` URI (ContentResolver query on a background thread).
     pub fn display_name(&self, uri: String) -> crate::Result<Option<String>> {
         let r: DisplayNameResponse = self.0.run_mobile_plugin("displayName", DisplayNameArgs { uri })?;

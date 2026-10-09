@@ -1,5 +1,34 @@
 #![allow(dead_code)]
+use std::path::{Path, PathBuf};
+
+use checkflat_core::photos::{self, PhotoInput};
 use rusqlite::{params, Connection};
+
+/// The data dir of a connection opened with `db::open(<data>/checkflat.db)`.
+pub fn data_dir_of(conn: &Connection) -> PathBuf {
+    Path::new(conn.path().expect("file database")).parent().unwrap().to_path_buf()
+}
+
+/// A plain gradient JPEG of the given size (no EXIF).
+pub fn jpeg(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbImage::from_fn(w, h, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 128]));
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)
+        .encode_image(&img)
+        .unwrap();
+    out
+}
+
+/// Stage a small photo in `data` and return what the observation save takes.
+pub fn staged_photo(data: &Path) -> PhotoInput {
+    let s = photos::stage(data, std::io::Cursor::new(jpeg(64, 48)), 0).unwrap();
+    PhotoInput { token: s.token, taken_at: s.taken_at }
+}
+
+/// One freshly staged photo for the database in `conn`.
+pub fn one_photo(conn: &Connection) -> Vec<PhotoInput> {
+    vec![staged_photo(&data_dir_of(conn))]
+}
 
 /// Insert minimal rows for later-sprint tables so cascade tests can exercise them.
 pub fn insert_plan(conn: &Connection, id: &str, project_id: &str) {

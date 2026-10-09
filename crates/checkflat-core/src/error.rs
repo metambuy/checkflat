@@ -30,6 +30,12 @@ pub enum CoreError {
     FractionInUse { count: i64 },
     #[error("a fraction is required when numbers run per fraction")]
     FractionRequired,
+    #[error("an observation needs at least one photo")]
+    PhotoRequired,
+    #[error("file is not a readable image: {0}")]
+    UnreadableImage(String),
+    #[error("this image format (HEIC/HEIF) cannot be read on this device")]
+    UnsupportedImage,
 }
 
 impl CoreError {
@@ -49,6 +55,9 @@ impl CoreError {
             CoreError::ScopeLocked => "scope_locked",
             CoreError::FractionInUse { .. } => "fraction_in_use",
             CoreError::FractionRequired => "fraction_required",
+            CoreError::PhotoRequired => "photo_required",
+            CoreError::UnreadableImage(_) => "unreadable_image",
+            CoreError::UnsupportedImage => "image_unsupported",
         }
     }
 }

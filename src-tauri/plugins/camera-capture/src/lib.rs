@@ -1,5 +1,6 @@
-//! Sprint 0 Spike B fallback: `<input capture>` opens the Photo Picker on Android WebView,
-//! so the camera is launched natively via `MediaStore.ACTION_IMAGE_CAPTURE`.
+//! The app's Android bridge. `<input capture>` opens the Photo Picker on Android WebView, so the
+//! camera is launched natively (`MediaStore.ACTION_IMAGE_CAPTURE`), the gallery through the system
+//! Photo Picker, and HEIC/HEIF is converted to JPEG before Rust sees it.
 use tauri::{
     plugin::{Builder, TauriPlugin},
     Manager, Runtime,
@@ -37,7 +38,7 @@ impl<R: Runtime, T: Manager<R>> crate::CameraCaptureExt<R> for T {
 /// Initializes the plugin.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("camera-capture")
-        .invoke_handler(tauri::generate_handler![commands::capture, commands::display_name])
+        .invoke_handler(tauri::generate_handler![commands::capture, commands::take_recovered_capture, commands::pick_image, commands::display_name])
         .setup(|app, api| {
             #[cfg(mobile)]
             let camera_capture = mobile::init(app, api)?;

@@ -1,7 +1,9 @@
-//! Checkflat Tauri shell: thin commands over `checkflat-core`, plus the Sprint 0 spike commands
-//! (report engines, camera) that the dev screen still uses.
+//! Checkflat Tauri shell: thin commands over `checkflat-core`, plus the Sprint 0 report spike
+//! that the dev screen still uses.
 
 mod commands;
+#[cfg(test)]
+mod asset_scope;
 mod devlog;
 mod error;
 mod state;
@@ -67,27 +69,6 @@ fn generate_report(app: tauri::AppHandle, engine: String) -> Result<ReportResult
     })
 }
 
-#[derive(Serialize)]
-struct PhotoResult {
-    path: String,
-    bytes: usize,
-    /// JPEG as base64 so the WebView can show it without asset-protocol scope setup.
-    base64: String,
-}
-
-/// Spike B part 2: native camera via the camera-capture plugin; the file is read here in Rust.
-#[tauri::command]
-async fn capture_photo(app: tauri::AppHandle) -> Result<PhotoResult, String> {
-    use tauri_plugin_camera_capture::CameraCaptureExt;
-    let res = app.camera_capture().capture().map_err(|e| e.to_string())?;
-    let bytes = std::fs::read(&res.path).map_err(|e| format!("read {}: {e}", res.path))?;
-    Ok(PhotoResult {
-        path: res.path,
-        bytes: bytes.len(),
-        base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
-    })
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -109,7 +90,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             platform_info,
             generate_report,
-            capture_photo,
             devlog::dev_log,
             commands::projects::list_projects,
             commands::projects::get_project,
@@ -122,6 +102,10 @@ pub fn run() {
             commands::fractions::list_fractions,
             commands::fractions::add_fraction,
             commands::fractions::delete_fraction,
+            commands::photos::stage_photo,
+            commands::photos::discard_staged_photo,
+            commands::photos::existing_staged_photos,
+            commands::photos::list_photos,
             commands::plans::stage_plan_source,
             commands::plans::import_plan,
             commands::plans::discard_staged_plan,
@@ -131,6 +115,7 @@ pub fn run() {
             commands::plans::get_plan,
             commands::observations::list_pins,
             commands::observations::create_observation,
+            commands::observations::update_observation,
             commands::observations::preview_ref,
             commands::observations::move_pin,
             commands::observations::delete_pin,

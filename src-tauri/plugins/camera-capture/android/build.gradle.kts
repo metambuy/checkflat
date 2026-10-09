@@ -21,8 +21,10 @@ android {
 }
 
 dependencies {
-    // core: FileProvider. activity: ActivityResult in the @ActivityCallback signature.
+    // core: FileProvider. activity: ActivityResult in the @ActivityCallback signature, Photo Picker contract.
     implementation("androidx.core:core-ktx:1.9.0")
     implementation("androidx.activity:activity:1.10.1")
+    // HEIF capture time on conversion (ExifInterface reads and writes EXIF in HEIF/JPEG).
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation(project(":tauri-android"))
 }

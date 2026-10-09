@@ -2,7 +2,7 @@
 //!
 //! Layout: `projects/<project_id>/plans/<plan_id>.pdf`, its tile cache
 //! `projects/<project_id>/plans/<plan_id>/tiles/` (D-014), `projects/<project_id>/photos/<photo_id>.jpg`,
-//! `tmp/<token>.pdf` (import staging), `projects/.trash/` (quarantine),
+//! `tmp/<token>.pdf` (plan import staging), `tmp/<token>.jpg` (processed photo waiting for its observation), `projects/.trash/` (quarantine),
 //! `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>`) at the root. The database only ever stores [`RelPath`]s.
 use std::collections::HashSet;
 use std::fmt;
@@ -117,6 +117,16 @@ pub fn plan_tiles_dir(project_id: &str, plan_id: &str) -> RelPath {
 
 pub fn staging_file(token: &str) -> RelPath {
     RelPath::new(&format!("{TMP_DIR}/{token}.pdf")).expect("valid")
+}
+
+/// A processed photo waiting for its observation to be saved (`tmp/` so the startup sweep, which
+/// quarantines unreferenced files under `photos/`, cannot take it before the UI recovers it).
+pub fn staging_photo(token: &str) -> RelPath {
+    RelPath::new(&format!("{TMP_DIR}/{token}.jpg")).expect("valid")
+}
+
+pub fn photo_file(project_id: &str, photo_id: &str) -> RelPath {
+    RelPath::new(&format!("{PROJECTS_DIR}/{project_id}/{PHOTOS_DIR}/{photo_id}.jpg")).expect("valid")
 }
 
 /// What the startup sweep did. Paths are relative to the data dir.

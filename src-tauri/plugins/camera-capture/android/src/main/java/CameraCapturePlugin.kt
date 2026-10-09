@@ -2,12 +2,25 @@ package com.checkflat.cameracapture
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
+import android.util.Log
 import android.provider.OpenableColumns
 import androidx.activity.result.ActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -21,9 +34,12 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Launches the system camera app and returns the captured JPEG's path.
- * Uses the app's FileProvider (authority "<applicationId>.fileprovider", declared by the Tauri
- * Android template with cache-path "."), so no extra manifest entries are needed.
+ * The app's Android bridge: system camera (`capture`), system Photo Picker (`pickImage`, no
+ * storage permission) and display names of picked files. Both image commands resolve the path of
+ * a file in the app cache, or no path when the user cancelled; HEIC/HEIF is converted to JPEG here
+ * because the Rust decoder cannot read it. The capture writes through the plugin's own
+ * [CaptureFileProvider] (authority "<applicationId>.cameracapture", declared in this plugin's
+ * manifest, cache `captures/` only).
  */
 @InvokeArg
 class DisplayNameArgs {
@@ -33,6 +49,14 @@ class DisplayNameArgs {
 @TauriPlugin
 class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     private var pendingFile: File? = null
+    private var pickPending = false
+
+    // The pick that has not been settled yet. `pickImage` must always resolve (a path, or nothing
+    // when the user backed out); if the system never delivers the activity result, the lifecycle
+    // watchdog below settles it as a cancel, so the UI is never left waiting.
+    @Volatile private var pickInvoke: Invoke? = null
+    private var pickObserver: LifecycleEventObserver? = null
+    private val main = Handler(Looper.getMainLooper())
 
     /**
      * Display name of a picked file (content:// via ContentResolver, file:// via the path).
@@ -76,24 +100,56 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     fun capture(invoke: Invoke) {
         // Tauri's PluginManager keeps a single activity-result callback; a second capture while the
         // camera is open would orphan the first Invoke (its promise would never settle).
-        if (pendingFile != null) {
+        if (pendingFile != null || pickPending) {
             invoke.reject("capture already in progress")
             return
         }
-        val dir = File(activity.cacheDir, "captures").apply { mkdirs() }
+        purgeOldCache()
+        val dir = File(activity.cacheDir, CAPTURES).apply { mkdirs() }
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val file = File(dir, "IMG_$stamp.jpg")
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.$PROVIDER_SUFFIX", file)
 
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
             .putExtra(MediaStore.EXTRA_OUTPUT, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         pendingFile = file
+        // Persist the target before the camera opens: if Android kills this process while the
+        // camera is in front, the photo still lands in this file and `takeRecoveredCapture` finds it.
+        prefs().edit().putString(PENDING_CAPTURE, file.absolutePath).commit()
         try {
             startActivityForResult(invoke, intent, "onCaptureResult")
         } catch (e: ActivityNotFoundException) {
             pendingFile = null
+            prefs().edit().remove(PENDING_CAPTURE).commit()
             invoke.reject("no camera app available")
+        }
+    }
+
+    private fun prefs() = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * A photo taken while Android killed the app: Tauri drops the camera's result when the process
+     * was recreated (its callback died with it), but the file is on disk and its path was saved by
+     * `capture`. Resolves `{ path }` once (then forgets it), or nothing when there is none, the
+     * file is missing or empty, or a capture is live in this process (that one is not lost).
+     */
+    @Command
+    fun takeRecoveredCapture(invoke: Invoke) {
+        if (pendingFile != null) {
+            invoke.resolve(JSObject())
+            return
+        }
+        val saved = prefs().getString(PENDING_CAPTURE, null)
+        prefs().edit().remove(PENDING_CAPTURE).commit()
+        val file = saved?.let { File(it) }
+        val captures = File(activity.cacheDir, CAPTURES).canonicalPath + File.separator
+        if (file != null && file.isFile && file.length() > 0 && file.canonicalPath.startsWith(captures)) {
+            Log.i(TAG, "recovered a capture taken while the app was not running: ${file.name}")
+            invoke.resolve(JSObject().apply { put("path", file.absolutePath) })
+        } else {
+            file?.delete()
+            invoke.resolve(JSObject())
         }
     }
 
@@ -101,11 +157,174 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     fun onCaptureResult(invoke: Invoke, result: ActivityResult) {
         val file = pendingFile
         pendingFile = null
+        prefs().edit().remove(PENDING_CAPTURE).commit()
         if (result.resultCode != Activity.RESULT_OK || file == null || !file.exists() || file.length() == 0L) {
             file?.delete()
-            invoke.reject("cancelled")
+            invoke.resolve(JSObject()) // cancelled: no path
             return
         }
         invoke.resolve(JSObject().apply { put("path", file.absolutePath) })
+    }
+
+    /** Photo Picker (Android 11+; backported by Play services; ACTION_OPEN_DOCUMENT fallback). */
+    @Command
+    fun pickImage(invoke: Invoke) {
+        if (pendingFile != null || pickPending) {
+            invoke.reject("capture already in progress")
+            return
+        }
+        purgeOldCache()
+        val request = PickVisualMediaRequest.Builder().setMediaType(PickVisualMedia.ImageOnly).build()
+        val intent = PickVisualMedia().createIntent(activity, request)
+        Log.i(TAG, "pick: launching ${intent.action} (API ${Build.VERSION.SDK_INT})")
+        pickPending = true
+        pickInvoke = invoke
+        watchPick(invoke)
+        try {
+            startActivityForResult(invoke, intent, "onPickResult")
+        } catch (e: ActivityNotFoundException) {
+            pickPending = false
+            pickInvoke = null
+            unwatchPick()
+            invoke.reject("no photo picker available")
+        }
+    }
+
+    /** After the picker took our activity away and gave it back, wait a moment for the result, then settle as a cancel. */
+    private fun watchPick(invoke: Invoke) {
+        activity.runOnUiThread {
+            var left = false
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE) left = true
+                if (event == Lifecycle.Event.ON_RESUME && left) {
+                    main.postDelayed({ pickLost(invoke) }, LOST_RESULT_GRACE_MS)
+                }
+            }
+            pickObserver = observer
+            (activity as? LifecycleOwner)?.lifecycle?.addObserver(observer)
+        }
+    }
+
+    private fun unwatchPick() {
+        val observer = pickObserver ?: return
+        pickObserver = null
+        activity.runOnUiThread { (activity as? LifecycleOwner)?.lifecycle?.removeObserver(observer) }
+    }
+
+    private fun pickLost(invoke: Invoke) {
+        if (pickInvoke !== invoke) return // the result arrived (or it was settled already)
+        Log.w(TAG, "pick: no activity result after the app resumed; settling as cancelled")
+        pickInvoke = null
+        pickPending = false
+        unwatchPick()
+        invoke.resolve(JSObject())
+    }
+
+    @ActivityCallback
+    fun onPickResult(invoke: Invoke, result: ActivityResult) {
+        if (pickInvoke !== invoke) {
+            Log.w(TAG, "pick: result code=${result.resultCode} arrived after the pick was settled; ignored")
+            return
+        }
+        pickInvoke = null
+        pickPending = false
+        unwatchPick()
+        val uri = PickVisualMedia().parseResult(result.resultCode, result.data)
+        Log.i(TAG, "pick: result code=${result.resultCode} uri=${uri != null}")
+        if (uri == null) {
+            invoke.resolve(JSObject()) // cancelled: no path
+            return
+        }
+        // Copy and convert off the main thread: a large photo or a cloud-backed provider can be slow.
+        Thread {
+            try {
+                val dir = File(activity.cacheDir, PICKS).apply { mkdirs() }
+                val copy = File(dir, "PICK_${System.currentTimeMillis()}.img")
+                activity.contentResolver.openInputStream(uri)?.use { input ->
+                    copy.outputStream().use { input.copyTo(it) }
+                } ?: throw java.io.IOException("cannot open $uri")
+                val ready = prepare(copy)
+                invoke.resolve(JSObject().apply { put("path", ready.absolutePath) })
+            } catch (e: Exception) {
+                Log.w(TAG, "pick: failed", e)
+                invoke.reject(e.message ?: e.toString())
+            }
+        }.start()
+    }
+
+    private fun isHeif(f: File): Boolean {
+        val head = ByteArray(12)
+        val n = f.inputStream().use { it.read(head) }
+        if (n < 12 || String(head, 4, 4, Charsets.US_ASCII) != "ftyp") return false
+        return String(head, 8, 4, Charsets.US_ASCII) in HEIF_BRANDS
+    }
+
+    /**
+     * HEIC/HEIF → JPEG (decoder applies the orientation; sampled so the long side stays ≥ 1600 px;
+     * the capture time is copied into the JPEG's EXIF, where the Rust side reads it). Any other
+     * format is returned untouched: Rust reads JPEG, PNG and WebP and their EXIF itself.
+     */
+    private fun prepare(file: File): File {
+        if (!isHeif(file)) return file
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            file.delete()
+            throw java.io.IOException("image_unsupported: HEIF needs Android 9 or newer")
+        }
+        val out = File(file.parentFile, file.nameWithoutExtension + ".jpg")
+        try {
+            val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                val longSide = maxOf(info.size.width, info.size.height)
+                var sample = 1
+                while (longSide / (sample * 2) >= TARGET_LONG_SIDE) sample *= 2
+                if (sample > 1) decoder.setTargetSampleSize(sample)
+            }
+            out.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+            bitmap.recycle()
+            copyCaptureTime(file, out)
+        } catch (e: Exception) {
+            out.delete()
+            throw java.io.IOException("unreadable_image: ${e.message}")
+        } finally {
+            file.delete()
+        }
+        return out
+    }
+
+    private fun copyCaptureTime(from: File, to: File) {
+        try {
+            val src = ExifInterface(from)
+            val time = src.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) ?: src.getAttribute(ExifInterface.TAG_DATETIME)
+            if (time == null) return
+            val dst = ExifInterface(to)
+            dst.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, time)
+            src.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL)?.let { dst.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, it) }
+            dst.saveAttributes()
+        } catch (e: Exception) {
+            // No capture time is not an error: the Rust side falls back to the import time.
+        }
+    }
+
+    /** Drops cache copies older than a day (the Rust side has long since staged them). */
+    private fun purgeOldCache() {
+        val cutoff = System.currentTimeMillis() - 24L * 3600 * 1000
+        for (name in arrayOf(CAPTURES, PICKS)) {
+            File(activity.cacheDir, name).listFiles()?.forEach { f ->
+                if (f.isFile && f.lastModified() < cutoff && f != pendingFile) f.delete()
+            }
+        }
+    }
+
+    private companion object {
+        const val TAG = "CheckflatPick"
+        const val LOST_RESULT_GRACE_MS = 1500L
+        const val PREFS = "camera-capture"
+        const val PENDING_CAPTURE = "pending_capture"
+        const val PROVIDER_SUFFIX = "cameracapture"
+        const val CAPTURES = "captures"
+        const val PICKS = "picks"
+        const val TARGET_LONG_SIDE = 1600
+        // Keep in step with `is_heif` in crates/checkflat-core/src/photos.rs.
+        val HEIF_BRANDS = setOf("heic", "heix", "hevc", "hevx", "hevm", "hevs", "heim", "heis", "mif1", "mif2", "msf1")
     }
 }

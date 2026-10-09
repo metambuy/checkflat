@@ -1,21 +1,25 @@
 <script lang="ts">
   // Spike B. Part 1: plain <input capture>. Part 2: native camera intent via the camera-capture plugin.
-  import { invoke } from "@tauri-apps/api/core";
+  import { convertFileSrc } from "@tauri-apps/api/core";
+  import type { StagedPhoto } from "../api";
+  import { captureStagedPhoto, pickStagedPhoto } from "../photoSource";
   let log = $state<string[]>([]);
   let nativeUrl = $state<string | null>(null);
   let nativeInfo = $state("");
   let nativeBusy = $state(false);
 
-  async function nativeCapture() {
+  // Production path: plugin (camera or Photo Picker) → cache file → core `stage_photo` → asset URL.
+  async function nativePhoto(source: () => Promise<StagedPhoto | null>, label: string) {
     nativeBusy = true;
-    add("plugin capture() called");
+    add(`${label} called`);
     try {
-      const r = await invoke<{ path: string; bytes: number; base64: string }>("capture_photo");
-      nativeUrl = `data:image/jpeg;base64,${r.base64}`;
-      nativeInfo = `${r.path} · ${(r.bytes / 1024).toFixed(0)} KB (read in Rust)`;
-      add(`plugin resolved: ${nativeInfo}`);
+      const r = await source();
+      if (!r) { add(`${label}: cancelled`); return; }
+      nativeUrl = convertFileSrc(r.path);
+      nativeInfo = `${r.takenAt} · token ${r.token.slice(0, 8)}`;
+      add(`${label}: staged ${nativeInfo}`);
     } catch (e) {
-      add(`plugin error: ${e}`);
+      add(`${label} error: ${JSON.stringify(e)}`);
     } finally {
       nativeBusy = false;
     }
@@ -43,8 +47,9 @@
     Take photo (input capture)
     <input type="file" accept="image/*" capture="environment" onchange={onChange} onclick={() => add("input clicked")} hidden />
   </label>
-  <p class="muted">Part 2: Kotlin plugin → <code>MediaStore.ACTION_IMAGE_CAPTURE</code>, path returned to Rust.</p>
-  <button onclick={nativeCapture} disabled={nativeBusy}>Take photo (native plugin)</button>
+  <p class="muted">Part 2: Kotlin plugin (camera intent / Photo Picker) → Rust resize, orientation, EXIF time (Sprint 3b).</p>
+  <button onclick={() => nativePhoto(captureStagedPhoto, "capture")} disabled={nativeBusy}>Camera (native plugin)</button>
+  <button onclick={() => nativePhoto(pickStagedPhoto, "pick")} disabled={nativeBusy}>Gallery (Photo Picker)</button>
   {#if nativeUrl}
     <img src={nativeUrl} alt="native capture" />
     <p class="muted">{nativeInfo}</p>

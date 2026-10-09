@@ -1,3 +1,5 @@
+mod common;
+
 use checkflat_core::refs::Scope;
 use checkflat_core::repo::{observations, projects};
 use checkflat_core::{db, migrations, CoreError};
@@ -182,7 +184,7 @@ fn v1_database_with_pins_migrates_to_v2_keeping_every_row() {
         assert_eq!(c, n, "{table}");
     }
     // Numbering continues from the old counter, never from the gap.
-    let next = observations::create_observation(&conn, "pl1", 0.5, 0.5, "", "").unwrap();
+    let next = observations::create_observation(&conn, dir.path(), "pl1", 0.5, 0.5, "", "", &[common::staged_photo(dir.path())]).unwrap();
     assert_eq!((next.seq, next.display_ref.as_str()), (5, "05"));
     // The FKs survived the rebuild: deleting the project cascades through everything.
     projects::delete(&conn, dir.path(), "p1").unwrap();

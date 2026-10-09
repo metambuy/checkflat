@@ -484,6 +484,7 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "checkflat-core",
+ "glob",
  "log",
  "report-spike",
  "serde",
@@ -499,6 +500,8 @@ dependencies = [
 name = "checkflat-core"
 version = "0.1.0"
 dependencies = [
+ "image",
+ "kamadak-exif",
  "log",
  "lopdf 0.45.0",
  "rusqlite",

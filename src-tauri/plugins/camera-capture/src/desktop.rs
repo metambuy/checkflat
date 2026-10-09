@@ -18,6 +18,15 @@ impl<R: Runtime> CameraCapture<R> {
         Err(crate::Error::Unsupported)
     }
 
+    /// Nothing is ever lost behind a camera on desktop.
+    pub fn take_recovered_capture(&self) -> crate::Result<CaptureResponse> {
+        Ok(CaptureResponse::default())
+    }
+
+    pub fn pick_image(&self) -> crate::Result<PickResponse> {
+        Err(crate::Error::Unsupported)
+    }
+
     /// Desktop paths carry their own file name; nothing to resolve.
     pub fn display_name(&self, _uri: String) -> crate::Result<Option<String>> {
         Ok(None)

@@ -2,9 +2,10 @@
   // One plan: tile viewer + pins. "+" enters add-pin mode; the next tap places a draft pin (not
   // persisted, no number) and leaves the mode; "Next" opens the observation sheet, whose Save
   // calls create_observation, which takes the number; Cancel/Back closes the sheet, then leaves
-  // the mode or discards the draft (no gap). The tile pyramid is generated here, in the
+  // the mode or discards the draft (no gap). "Edit" on a selected pin opens the same sheet for
+  // its description and photos (update_observation). The tile pyramid is generated here, in the
   // foreground, the first time the plan is opened (D-014).
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { api, asAppError, type AppError, type Observation, type Plan, type TileInfo, type TileManifest } from "../api";
   import { t } from "../i18n.svelte";
   import { back, setBackHandler } from "../nav.svelte";
@@ -19,8 +20,17 @@
   import { revertMove, withPosition } from "../viewer/pins";
   import type { Point } from "../viewer/coords";
   import { devlog } from "../devlog";
+  import { createDraftSaver, DRAFT_KEY, restoreTarget, type SheetDraft, type SheetState } from "../sheet/draft";
+  import { saveThenRefresh } from "../sheet/flow";
 
-  let { projectId, planId }: { projectId: string; planId: string } = $props();
+  type SheetPhotos = { photos: { token: string; takenAt: string }[]; removed: string[] };
+
+  let { projectId, planId, recovered = null }: { projectId: string; planId: string; recovered?: SheetDraft | null } = $props();
+  // The input of an open sheet is kept stored (SQLite) until the sheet closes, so it survives Android
+  // killing the app, e.g. behind the camera (sheet/draft.ts).
+  // Seeds the first sheet only; closing it (save, cancel, Back) ends the restore.
+  let restoredDraft = $state<SheetDraft | null>(untrack(() => recovered));
+  const saver = createDraftSaver((raw) => api.setSetting(DRAFT_KEY, raw), 400, (e) => console.warn("[draft] could not store the sheet draft", e));
 
   let plan = $state<Plan | null>(null);
   let info = $state<TileInfo | null>(null);
@@ -32,7 +42,8 @@
   let genFailed = $state(false);
   let error = $state<AppError | null>(null);
   let toDelete = $state<Observation | null>(null);
-  let sheet = $state(false);
+  let sheet = $state<"create" | "edit" | null>(null);
+  let editSaving = $state(false);
   let sheetError = $state<AppError | null>(null);
   let viewer = $state<PlanViewer | null>(null);
   let leaving = false;
@@ -69,8 +80,9 @@
 
   onMount(() => {
     setBackHandler(() => {
-      switch (backStep({ dialog: toDelete !== null, sheet, adding: ds.adding, draft: ds.draft !== null, saving: ds.saving, selected: selectedId !== null })) {
+      switch (backStep({ dialog: toDelete !== null, sheet: sheet !== null, adding: ds.adding, draft: ds.draft !== null, saving: ds.saving || editSaving, selected: selectedId !== null })) {
         case "dialog": toDelete = null; return true;
+        case "busy": return true; // a save is in flight: Back does nothing
         case "sheet": closeSheet(); return true;
         case "draft": ds = cancel(ds); return true;
         case "selection": selectedId = null; return true;
@@ -83,6 +95,7 @@
         // Never a manifest from other generator settings: prepare() clears that cache first, and
         // the viewer then gets the new levels as they complete.
         if (viewable(info.manifest)) manifest = info.manifest;
+        if (recovered) restoreSheet(recovered);
         if (!isComplete(info.manifest)) await prepare();
       } catch (e) {
         error = asAppError(e);
@@ -98,10 +111,27 @@
     };
     window.addEventListener("keydown", key);
     return () => {
+      if (sheet !== null) void saver.clear(); // leaving with the sheet open abandons it
       leaving = true; // stops generation after the current tile; it resumes on the next open
       window.removeEventListener("keydown", key);
     };
   });
+
+  /** The sheet that was open when the app was killed comes back with its input and photos. */
+  function restoreSheet(d: SheetDraft) {
+    const target = restoreTarget(d, pins.map((p) => p.id));
+    if (!target) {
+      // Nothing to reopen it on: drop it, so it can never seed another observation's sheet.
+      restoredDraft = null;
+      void saver.clear();
+    } else if (target.sheet === "create") {
+      ds = { adding: false, draft: { x: d.x, y: d.y }, saving: false };
+      sheet = "create";
+    } else {
+      selectedId = target.selectedId;
+      sheet = "edit";
+    }
+  }
 
   function startAdd() {
     selectedId = null;
@@ -109,16 +139,28 @@
   }
 
   function closeSheet() {
-    sheet = false;
+    sheet = null;
     sheetError = null;
+    restoredDraft = null;
+    void saver.clear();
+  }
+
+  /** Input of the open sheet → the stored draft. */
+  function sheetState(s: SheetState, immediate: boolean): Promise<void> | void {
+    let d: SheetDraft | null = null;
+    const base = { v: 1 as const, projectId, planId, ...s, savedAt: Date.now() };
+    if (sheet === "create" && ds.draft) d = { ...base, mode: "create", observationId: null, x: ds.draft.x, y: ds.draft.y };
+    else if (sheet === "edit" && selectedId) d = { ...base, mode: "edit", observationId: selectedId, x: 0, y: 0 };
+    if (!d) return;
+    return immediate ? saver.flush(d) : saver.schedule(d);
   }
 
   /** Save of the sheet: one create_observation for the draft; the list is re-read in the
    * server's order. On failure the sheet stays open with the error. */
-  async function saveObservation(fraction: string, description: string) {
+  async function saveObservation(fraction: string, description: string, photos: SheetPhotos) {
     sheetError = null;
     try {
-      const pin = await confirm(() => ds, (s) => (ds = s), (p) => api.createObservation(planId, p.x, p.y, fraction, description));
+      const pin = await confirm(() => ds, (s) => (ds = s), (p) => api.createObservation(planId, p.x, p.y, fraction, description, photos.photos));
       if (!pin) return;
       closeSheet();
       selectedId = pin.id;
@@ -126,6 +168,25 @@
     } catch (e) {
       if (sheet) sheetError = asAppError(e);
       else error = asAppError(e);
+    }
+  }
+
+  /** Save of the sheet in edit mode: description and photos of the selected pin. */
+  async function saveEdit(_fraction: string, description: string, photos: SheetPhotos) {
+    const pin = selected;
+    if (!pin || editSaving) return;
+    sheetError = null;
+    editSaving = true;
+    try {
+      await saveThenRefresh({
+        save: async () => void (await api.updateObservation(pin.id, description, photos.photos, photos.removed)),
+        onSaved: closeSheet,
+        refresh: async () => void (pins = await api.listPins(planId)),
+        onSaveError: (e) => (sheetError = asAppError(e)),
+        onRefreshError: (e) => (error = asAppError(e)),
+      });
+    } finally {
+      editSaving = false;
     }
   }
 
@@ -215,12 +276,13 @@
           {#if ds.draft}
             <span class="grow">{t("pin.draft")}</span>
             <button onclick={() => (ds = cancel(ds))} disabled={ds.saving}>{t("common.cancel")}</button>
-            <button class="primary" onclick={() => (sheet = true)} disabled={ds.saving}>{t("common.next")}</button>
+            <button class="primary" onclick={() => (sheet = "create")} disabled={ds.saving}>{t("common.next")}</button>
           {:else if ds.adding}
             <span class="grow">{t("viewer.tap_hint")}</span>
             <button onclick={() => (ds = cancel(ds))}>{t("common.cancel")}</button>
           {:else if selected}
             <span class="grow">{t("pin.label", { ref: selected.ref })}</span>
+            <button onclick={() => (sheet = "edit")}>{t("pin.edit")}</button>
             <button class="danger" onclick={() => (toDelete = selected)}>{t("common.delete")}</button>
             <button onclick={() => (selectedId = null)}>{t("common.close")}</button>
             <button class="primary add" onclick={startAdd} aria-label={t("pin.add")} title={t("pin.add")}>+</button>
@@ -247,8 +309,10 @@
     </aside>
   </div>
 
-  {#if sheet && ds.draft}
-    <ObservationSheet {projectId} saving={ds.saving} error={sheetError} onsave={saveObservation} oncancel={closeSheet} ondismiss={() => (sheetError = null)} />
+  {#if sheet === "create" && ds.draft}
+    <ObservationSheet {projectId} initial={restoredDraft?.mode === "create" ? restoredDraft : null} onstate={sheetState} saving={ds.saving} error={sheetError} onsave={saveObservation} oncancel={closeSheet} ondismiss={() => (sheetError = null)} />
+  {:else if sheet === "edit" && selected}
+    <ObservationSheet {projectId} observation={selected} initial={restoredDraft?.mode === "edit" ? restoredDraft : null} onstate={sheetState} saving={editSaving} error={sheetError} onsave={saveEdit} oncancel={closeSheet} ondismiss={() => (sheetError = null)} />
   {/if}
   <ConfirmDialog
     open={toDelete !== null}
