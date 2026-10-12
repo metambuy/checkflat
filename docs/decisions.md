@@ -398,3 +398,10 @@ The one-off generation stays above 600 MB, as stated in the mitigation paragraph
 
 **P30 regression check pending** (gallery cancel/pick, HEIC, camera, Back during edit save, cold start), owner Martín, before the Sprint 4/5 device test.
 
+## D-023 — Sprint 5 (report) runs before Sprint 4 (annotation, list) (2026-10-12)
+**Context.** No Android phone is available for a few days (the P30 is away, the client's Xiaomi is not ours). Sprint 4's deliverables — the annotation canvas (touch drawing) and the observation list — are field UI that must be tried on a phone before they count as done. Sprint 5's deliverables are pure Rust (tile stitching with the `image` crate, Typst) plus one temporary button, so they can be built and verified on the Mac dev build and the Android emulator; a phone only adds the final time and memory numbers.
+
+**Options.** (1) Wait for a phone and keep the order; (2) swap: Sprint 5 now, Sprint 4 after; (3) do Sprint 4 against the emulator only and accept it as done.
+
+**Outcome.** Option 2. Sprint 5 is designed so that nothing it needs runs in the WebView: snapshots come from the tile cache, the report from Typst, both testable with `cargo test`. The one thing Sprint 4 would have handed Sprint 5 — annotations flattened onto the report photos — becomes a hook (`checkflat-report::annotate::flatten`) that returns the photo unchanged until Sprint 4 fills it; every photo is routed through it now so the later change is local. Sprint 4 keeps its scope and runs next; D-022's pending P30 regression check stays pending and is done together with the Sprint 4 device test. Option 3 was rejected because the emulator cannot show touch-drawing feel, and option 1 because a week of waiting is the whole budget of a sprint.
+
