@@ -1,8 +1,7 @@
 //! Report generation (Sprint 5). Temporary action: the PDF is written to `reports/` in the app
-//! data dir and its path shown; share (Android) / save (Windows) follow in Sprint 6.
-//! The database lock is held only for `collect`; the image work and the Typst compile run
-//! without it.
-use std::io::Write;
+//! data dir (one per project, `paths::write_report`) and its path shown; share (Android) / save
+//! (Windows) follow in Sprint 6. The database lock is held only for `collect`; the image work and
+//! the Typst compile run without it.
 use std::time::Instant;
 
 use checkflat_core::i18n::Lang;
@@ -38,15 +37,7 @@ pub async fn generate_report(app: AppHandle, project_id: String, lang: String, t
     run_fs_with(app, move |dir| {
         let input = report::prepare(dir, source)?;
         let rendered = report::render(&input)?;
-        let rel = paths::report_file(&project_id, &clock::now_compact());
-        let dest = rel.resolve(dir);
-        std::fs::create_dir_all(dest.parent().expect("reports dir"))?;
-        let part = dest.with_extension("pdf.part");
-        let mut f = std::fs::File::create(&part)?;
-        f.write_all(&rendered.pdf)?;
-        f.sync_all()?;
-        drop(f);
-        std::fs::rename(&part, &dest)?;
+        let dest = paths::write_report(dir, &project_id, &clock::now_compact(), &rendered.pdf)?;
         Ok::<_, report::ReportError>(ReportResult {
             path: dest.to_string_lossy().into_owned(),
             bytes: rendered.pdf.len(),
