@@ -67,16 +67,29 @@ pub fn pyramid(conn: &Connection, data: &Path, plan: &Plan, sizes: &[u32]) -> Ti
     m
 }
 
-pub fn jpeg(w: u32, h: u32) -> Vec<u8> {
-    let img = image::RgbImage::from_fn(w, h, |x, y| image::Rgb([(x * 255 / w) as u8, (y * 255 / h) as u8, 90]));
+/// A gradient JPEG; `seed` varies the content so no two photos are byte-identical (Typst
+/// memoizes decoded images by content, which would hide the real memory cost).
+pub fn jpeg_seeded(w: u32, h: u32, seed: u32) -> Vec<u8> {
+    let img = image::RgbImage::from_fn(w, h, |x, y| {
+        let n = (x.wrapping_mul(31) ^ y.wrapping_mul(17) ^ seed.wrapping_mul(2654435761)) % 97;
+        image::Rgb([((x * 255 / w) as u8).wrapping_add(n as u8), (y * 255 / h) as u8, (90 + seed % 100) as u8])
+    });
     let mut out = Vec::new();
     JpegEncoder::new_with_quality(&mut out, 85).encode_image(&img).unwrap();
     out
 }
 
+pub fn jpeg(w: u32, h: u32) -> Vec<u8> {
+    jpeg_seeded(w, h, 0)
+}
+
 /// Stages a photo and overrides its capture time (UTC ISO).
 pub fn photo(data: &Path, w: u32, h: u32, taken_at: &str) -> PhotoInput {
-    let s = photos::stage(data, Cursor::new(jpeg(w, h)), 0).unwrap();
+    photo_seeded(data, w, h, taken_at, 0)
+}
+
+pub fn photo_seeded(data: &Path, w: u32, h: u32, taken_at: &str, seed: u32) -> PhotoInput {
+    let s = photos::stage(data, Cursor::new(jpeg_seeded(w, h, seed)), 0).unwrap();
     PhotoInput { token: s.token, taken_at: taken_at.to_string() }
 }
 

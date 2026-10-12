@@ -486,6 +486,7 @@ dependencies = [
  "checkflat-core",
  "checkflat-report",
  "glob",
+ "image",
  "log",
  "serde",
  "serde_json",

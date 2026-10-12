@@ -120,6 +120,8 @@ pub struct OverviewData {
 #[derive(Debug, Clone, Serialize)]
 pub struct PhotoData {
     pub file: String,
+    /// Height over width; the frame is sized from it (portrait photos are height-capped).
+    pub aspect: f64,
     /// `n. dd.mm.yyyy hh:mm`, local time.
     pub caption: String,
 }
@@ -221,10 +223,14 @@ pub fn prepare(data_dir: &Path, src: ReportSource) -> Result<ReportInput> {
                 .and_then(|bytes| Ok(annotate::flatten(&bytes, photo.annotation_json.as_deref())?.into_owned()))
                 .and_then(|bytes| annotate::report_photo(&bytes));
             match prepared {
-                Ok(jpeg) => {
+                Ok(p) => {
                     let file = format!("img/photo-{i}-{j}.jpg");
-                    photo_data.push(PhotoData { file: file.clone(), caption: format!("{}. {}", j + 1, clock.date_time(&photo.taken_at)) });
-                    files.push((file, jpeg));
+                    photo_data.push(PhotoData {
+                        file: file.clone(),
+                        aspect: f64::from(p.height) / f64::from(p.width),
+                        caption: format!("{}. {}", j + 1, clock.date_time(&photo.taken_at)),
+                    });
+                    files.push((file, p.jpeg));
                     stats.photos += 1;
                 }
                 Err(e) => {

@@ -20,6 +20,8 @@ base64 = "0.22"
 tauri-plugin-camera-capture = { path = "plugins/camera-capture" }
 checkflat-core = { path = "../crates/checkflat-core" }
 checkflat-report = { path = "../crates/checkflat-report" }
+# Only the debug-build seed command uses it directly (the core compiles it in anyway).
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 log = "0.4"

@@ -17,6 +17,25 @@ const TEXTS: [&str; 3] = [
     "Tomada da cozinha sem tampa e com cabos à vista; situação perigosa que deve ser corrigida antes da entrega. Confirmar com o instalador elétrico a conformidade do circuito e entregar o respetivo certificado.",
 ];
 
+/// The source photo with a small coloured square stamped on it, so every seeded copy has
+/// different bytes: Typst memoizes decoded images by content, and identical copies would hide
+/// the real memory cost of 150 photos.
+fn unique_copy(jpeg: &[u8], n: u32) -> Result<Vec<u8>, CoreError> {
+    let mut img = image::load_from_memory(jpeg).map_err(|e| CoreError::UnreadableImage(e.to_string()))?.to_rgb8();
+    let (w, h) = (img.width(), img.height());
+    let colour = image::Rgb([(n * 53 % 256) as u8, (n * 97 % 256) as u8, (n * 193 % 256) as u8]);
+    for y in 0..h.min(48) {
+        for x in 0..w.min(48) {
+            img.put_pixel(x, y, colour);
+        }
+    }
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)
+        .encode_image(&img)
+        .map_err(|e| CoreError::UnreadableImage(e.to_string()))?;
+    Ok(out)
+}
+
 /// Creates `count` observations on `plan_id` through the normal save path, three photos each
 /// (copies of photos already in the project, re-staged), pseudo-random positions including
 /// corners, long PT descriptions, and capture times on both sides of the 2026-10-25 DST change.
@@ -57,7 +76,7 @@ pub async fn dev_seed_observations(app: AppHandle, plan_id: String, count: u32) 
             let staged: Vec<PhotoInput> = (0..3)
                 .map(|j| {
                     let src = &bytes[((i * 3 + j) as usize) % bytes.len()];
-                    let s = photos::stage(dir, Cursor::new(src.as_slice()), 0)?;
+                    let s = photos::stage(dir, Cursor::new(unique_copy(src, i * 3 + j)?), 0)?;
                     Ok(PhotoInput { token: s.token, taken_at: times[j as usize].to_string() })
                 })
                 .collect::<Result<_, CoreError>>()?;

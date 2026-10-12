@@ -22,21 +22,29 @@ pub fn flatten<'a>(jpeg: &'a [u8], annotation_json: Option<&str>) -> Result<Cow<
     Ok(Cow::Borrowed(jpeg))
 }
 
+/// A photo ready for the PDF, with its pixel size (the template sizes the frame from it).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReportPhoto {
+    pub jpeg: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Downscales to at most [`REPORT_PHOTO_PX`] on the long side (JPEG q80). A photo that is already
 /// small enough is embedded as stored (it is a JPEG without EXIF, D-022).
-pub fn report_photo(bytes: &[u8]) -> Result<Vec<u8>> {
+pub fn report_photo(bytes: &[u8]) -> Result<ReportPhoto> {
     let unreadable = |e: &dyn std::fmt::Display| ReportError::Image(e.to_string());
     let reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format().map_err(|e| unreadable(&e))?;
     let img = reader.decode().map_err(|e| unreadable(&e))?;
     if img.width().max(img.height()) <= REPORT_PHOTO_PX {
-        return Ok(bytes.to_vec());
+        return Ok(ReportPhoto { jpeg: bytes.to_vec(), width: img.width(), height: img.height() });
     }
     let rgb = img.resize(REPORT_PHOTO_PX, REPORT_PHOTO_PX, FilterType::Triangle).to_rgb8();
-    let mut out = Vec::new();
-    JpegEncoder::new_with_quality(&mut out, REPORT_JPEG_QUALITY)
+    let mut jpeg = Vec::new();
+    JpegEncoder::new_with_quality(&mut jpeg, REPORT_JPEG_QUALITY)
         .write_image(rgb.as_raw(), rgb.width(), rgb.height(), ExtendedColorType::Rgb8)
         .map_err(|e| unreadable(&e))?;
-    Ok(out)
+    Ok(ReportPhoto { jpeg, width: rgb.width(), height: rgb.height() })
 }
 
 #[cfg(test)]
@@ -62,12 +70,14 @@ mod tests {
     #[test]
     fn report_photo_caps_the_long_side_and_keeps_small_ones() {
         let big = report_photo(&jpeg(1600, 1200)).unwrap();
-        let dims = image::load_from_memory(&big).unwrap();
+        let dims = image::load_from_memory(&big.jpeg).unwrap();
         assert_eq!((dims.width(), dims.height()), (800, 600));
-        let tall = image::load_from_memory(&report_photo(&jpeg(900, 1600)).unwrap()).unwrap();
-        assert_eq!((tall.width(), tall.height()), (450, 800));
+        assert_eq!((big.width, big.height), (800, 600));
+        let tall = report_photo(&jpeg(900, 1600)).unwrap();
+        assert_eq!((tall.width, tall.height), (450, 800));
         let small = jpeg(640, 480);
-        assert_eq!(report_photo(&small).unwrap(), small, "embedded as stored");
+        let kept = report_photo(&small).unwrap();
+        assert_eq!((kept.jpeg, kept.width, kept.height), (small, 640, 480), "embedded as stored");
         assert!(matches!(report_photo(b"not an image"), Err(ReportError::Image(_))));
     }
 }

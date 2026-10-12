@@ -112,13 +112,9 @@ fn empty_project_and_missing_photo_file() {
     assert!(matches!(collect(&conn, data, "nope", Lang::En, "UTC", 0), Err(checkflat_report::ReportError::Core(checkflat_core::CoreError::NotFound))));
 }
 
-/// 50 observations × 3 photos on an A1 + an A4 plan — the Sprint 5 load case (D-024).
-/// `cargo test --release -p checkflat-report --test report -- --ignored --nocapture`
-#[test]
-#[ignore]
-fn measure_50_observations() {
-    let dir = tempfile::tempdir().unwrap();
-    let data = dir.path();
+/// The Sprint 5 load case (D-024): 50 observations × 3 photos on an A1 + an A4 plan, both with
+/// a full synthetic pyramid.
+fn fixture_50(data: &Path) -> (Connection, String) {
     let conn = common::open(data);
     let pid = common::project(&conn, "Edifício LAMAS", "Rua das Flores 12, Porto");
     let a1 = common::plan(&conn, data, &pid, "Piso 1", common::A1);
@@ -128,13 +124,51 @@ fn measure_50_observations() {
     for i in 0..50u32 {
         let plan = if i % 3 == 0 { &a4 } else { &a1 };
         let (x, y) = (f64::from(i % 7) / 6.0, f64::from(i % 5) / 4.0);
+        // Every photo unique: Typst memoizes decoded images by content.
         let photos = [
-            common::photo(data, 1600, 1200, "2026-10-20T10:00:00.000Z"),
-            common::photo(data, 1200, 1600, "2026-10-30T10:00:00.000Z"),
-            common::photo(data, 1600, 1200, "2026-10-30T11:00:00.000Z"),
+            common::photo_seeded(data, 1600, 1200, "2026-10-20T10:00:00.000Z", i * 3),
+            common::photo_seeded(data, 1200, 1600, "2026-10-30T10:00:00.000Z", i * 3 + 1),
+            common::photo_seeded(data, 1600, 1200, "2026-10-30T11:00:00.000Z", i * 3 + 2),
         ];
         common::observation(&conn, data, plan, x, y, &format!("{i}. {PT_TEXT}"), &photos);
     }
+    (conn, pid)
+}
+
+/// Writes the load fixture as an app data dir at `$CHECKFLAT_FIXTURE_DIR` (to push into the
+/// emulator's app data with `adb` and press Generate report there, D-024).
+/// `CHECKFLAT_FIXTURE_DIR=/tmp/fixture cargo test -p checkflat-report --test report -- --ignored write_fixture`
+#[test]
+#[ignore]
+fn write_fixture() {
+    let Ok(dir) = std::env::var("CHECKFLAT_FIXTURE_DIR") else {
+        eprintln!("CHECKFLAT_FIXTURE_DIR not set; nothing written");
+        return;
+    };
+    let data = Path::new(&dir);
+    std::fs::create_dir_all(data).unwrap();
+    let (conn, _) = fixture_50(data);
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+    eprintln!("fixture written to {dir}");
+}
+
+/// `cargo test --release -p checkflat-report --test report -- --ignored --nocapture measure`
+/// With `CHECKFLAT_DATA_DIR=<an app data dir>` (e.g. pulled from the emulator after seeding),
+/// measures that directory's first project instead of the synthetic fixture.
+#[test]
+#[ignore]
+fn measure_50_observations() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = std::env::var("CHECKFLAT_DATA_DIR").ok();
+    let data = real.as_deref().map(Path::new).unwrap_or(dir.path());
+    let (conn, pid) = match &real {
+        Some(_) => {
+            let conn = common::open(data);
+            let pid: String = conn.query_row("SELECT id FROM project ORDER BY updated_at DESC LIMIT 1", [], |r| r.get(0)).unwrap();
+            (conn, pid)
+        }
+        None => fixture_50(data),
+    };
     let started = std::time::Instant::now();
     let src = collect(&conn, data, &pid, Lang::Pt, "Europe/Lisbon", 60).unwrap();
     let collect_ms = started.elapsed().as_millis();
