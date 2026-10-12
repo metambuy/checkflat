@@ -133,7 +133,7 @@ jobs:
           { echo "### $(basename "$APK")"; echo;
             "$BT/aapt2" dump badging "$APK" | grep -E "^package:" ;
             echo; echo "APK size: $BYTES bytes ($(awk "BEGIN{printf \"%.1f\", $BYTES/1048576}") MB)";
-            echo; echo '```'; grep -E "SHA-256" certs.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo; echo '```'; grep -E "SHA-256" certs.txt; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
