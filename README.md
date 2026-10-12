@@ -31,6 +31,8 @@ AVDs used for the spikes (create with `avdmanager create avd -n <name> -k "syste
 
 `hw.camera.back=virtualscene` gives the camera intent a fake 3D scene, so photo capture can be tested without hardware.
 
+The macOS window cannot import a plan: WKWebView has no WebP encoder, so tile generation stops with "this WebView cannot encode WebP" (`src/lib/viewer/tiles.ts:120`; Android WebView and Windows WebView2 encode WebP). Anything involving a plan is tested on the emulator.
+
 ## Client data
 `Examples/` (client plans) is gitignored and must never be committed; `public/spike/` stays ignored as a safety net. Plans are tested the way the client uses them: import through the app. On an emulator or phone, put the PDF where the Android picker finds it:
 
