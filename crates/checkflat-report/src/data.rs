@@ -1,6 +1,7 @@
-//! Report content. [`collect`] reads everything the report needs from the database (fast, under
-//! the connection lock); [`prepare`] turns it into the template's data plus the image files
-//! (snapshots from the tile cache, photos through the annotation hook), with no database access.
+//! Report content. [`collect`] reads everything the report needs from the database (rows only,
+//! fast, under the connection lock); [`prepare`] turns it into the template's data plus the image
+//! files (tile manifests verified on disk, snapshots from the tile cache, photos through the
+//! annotation hook), with no database access.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -19,10 +20,9 @@ use crate::{annotate, Result};
 
 pub struct PlanSource {
     pub plan: Plan,
+    /// The plan's tile cache; [`prepare`] reads and verifies its manifest (a plan never opened on
+    /// this device has none).
     pub tiles_dir: PathBuf,
-    /// Finished levels on disk (verified by `tiles::info`); `None` when the plan was never
-    /// prepared on this device.
-    pub manifest: Option<TileManifest>,
 }
 
 /// Everything read from the database for one report.
@@ -40,12 +40,8 @@ pub fn collect(conn: &Connection, data_dir: &Path, project_id: &str, lang: Lang,
     let project = projects::get(conn, project_id)?;
     let plans = plans::list_for_project(conn, project_id)?
         .into_iter()
-        .map(|plan| {
-            let manifest = tiles::info(conn, data_dir, &plan.id)?.manifest;
-            let tiles_dir = plan_tiles_dir(&plan.project_id, &plan.id).resolve(data_dir);
-            Ok(PlanSource { plan, tiles_dir, manifest })
-        })
-        .collect::<Result<Vec<_>>>()?;
+        .map(|plan| PlanSource { tiles_dir: plan_tiles_dir(&plan.project_id, &plan.id).resolve(data_dir), plan })
+        .collect();
     let observations = observations::list_open_for_project(conn, project_id)?
         .into_iter()
         .map(|o| Ok((photos::list_for_observation(conn, &o.id)?, o)))
@@ -159,21 +155,24 @@ fn labels(lang: Lang) -> Labels {
     }
 }
 
-/// Image work, no database. Overviews are made once per plan and shared by its observations.
+/// Image work, no database: the tile manifests are read and verified here (one `stat` per tile
+/// file), then snapshots and photos. Overviews are made once per plan and shared by its
+/// observations.
 pub fn prepare(data_dir: &Path, src: ReportSource) -> Result<ReportInput> {
     let ReportSource { project, lang, clock, plans, observations } = src;
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     let mut stats = Stats { observations: observations.len(), ..Stats::default() };
-    let plans: HashMap<&str, &PlanSource> = plans.iter().map(|p| (p.plan.id.as_str(), p)).collect();
+    let plans: HashMap<&str, (&PlanSource, Option<TileManifest>)> =
+        plans.iter().map(|p| (p.plan.id.as_str(), (p, tiles::read_manifest(&p.tiles_dir)))).collect();
     let mut overviews: HashMap<String, Option<(String, f64)>> = HashMap::new();
 
     let mut out = Vec::with_capacity(observations.len());
     for (i, (obs, photos)) in observations.iter().enumerate() {
         let plan = plans.get(obs.plan_id.as_str());
-        let plan_title = plan.map(|p| p.plan.title.clone()).unwrap_or_default();
+        let plan_title = plan.map(|(p, _)| p.plan.title.clone()).unwrap_or_default();
 
         let started = Instant::now();
-        let (crop, overview) = match plan.and_then(|p| p.manifest.as_ref().map(|m| (p, m))) {
+        let (crop, overview) = match plan.and_then(|(p, m)| m.as_ref().map(|m| (*p, m))) {
             Some((p, manifest)) => {
                 let win = snapshot::window(obs.x_norm, obs.y_norm, manifest.width_pt, manifest.height_pt);
                 let crop = snapshot::crop_level(manifest)

@@ -1,6 +1,6 @@
 //! Checkflat report (Sprint 5). Three steps, so the database lock is held only for the first:
-//! [`collect`] reads the project (rows + tile manifests), [`prepare`] does the image work (plan
-//! snapshots from the tile cache, photos through the annotation hook and downscaled), and
+//! [`collect`] reads the project's rows, [`prepare`] does the disk and image work (tile manifests
+//! verified, plan snapshots from the tile cache, photos through the annotation hook and downscaled), and
 //! [`render`] compiles the Typst template to a PDF. Pure Rust: no WebView, no PDF.js (D-014).
 
 pub mod annotate;

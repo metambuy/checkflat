@@ -104,7 +104,10 @@ fn level_on_disk(dir: &Path, level: &TileLevel) -> bool {
     })
 }
 
-fn read_manifest(dir: &Path) -> Option<TileManifest> {
+/// The finished levels of the tile cache at `dir`: the manifest, checked against the disk (every
+/// listed tile must exist and be non-empty, one `stat` each). No database access, so a caller
+/// that holds the connection lock can defer this (the report's `prepare` step).
+pub fn read_manifest(dir: &Path) -> Option<TileManifest> {
     let text = std::fs::read_to_string(dir.join(MANIFEST)).ok()?;
     match serde_json::from_str::<TileManifest>(&text) {
         Ok(mut m) if m.validate().is_ok() => {
