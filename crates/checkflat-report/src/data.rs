@@ -217,10 +217,11 @@ pub fn prepare(data_dir: &Path, src: ReportSource) -> Result<ReportInput> {
         let started = Instant::now();
         let mut photo_data = Vec::with_capacity(photos.len());
         for (j, photo) in photos.iter().enumerate() {
-            let prepared = std::fs::read(photo.file_path.resolve(data_dir))
-                .map_err(crate::ReportError::Io)
-                .and_then(|bytes| Ok(annotate::flatten(&bytes, photo.annotation_json.as_deref())?.into_owned()))
-                .and_then(|bytes| annotate::report_photo(&bytes));
+            let prepared = std::fs::read(photo.file_path.resolve(data_dir)).map_err(crate::ReportError::Io).and_then(|bytes| {
+                // Borrowed until Sprint 4 draws on it: no copy of the stored photo.
+                let flat = annotate::flatten(&bytes, photo.annotation_json.as_deref())?;
+                annotate::report_photo(&flat)
+            });
             match prepared {
                 Ok(p) => {
                     let file = format!("img/photo-{i}-{j}.jpg");
