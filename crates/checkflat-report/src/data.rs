@@ -228,7 +228,8 @@ pub fn prepare(data_dir: &Path, src: ReportSource) -> Result<ReportInput> {
                     photo_data.push(PhotoData {
                         file: file.clone(),
                         aspect: f64::from(p.height) / f64::from(p.width),
-                        caption: format!("{}. {}", j + 1, clock.date_time(&photo.taken_at)),
+                        // Numbered over the photos actually shown: a skipped one leaves no gap.
+                        caption: format!("{}. {}", photo_data.len() + 1, clock.date_time(&photo.taken_at)),
                     });
                     files.push((file, p.jpeg));
                     stats.photos += 1;

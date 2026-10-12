@@ -101,13 +101,20 @@ fn empty_project_and_missing_photo_file() {
     let r = render(&input).unwrap();
     assert_eq!(r.pages, 1, "cover only");
 
-    // A photo whose file vanished is skipped, not fatal.
+    // A photo whose file vanished is skipped, not fatal, and the captions stay consecutive.
     let plan = common::plan(&conn, data, &pid, "P", common::A4);
-    let id = common::observation(&conn, data, &plan, 0.5, 0.5, "x", &[common::photo(data, 100, 100, "2026-01-01T00:00:00.000Z")]);
-    let photo = checkflat_core::repo::photos::list_for_observation(&conn, &id).unwrap().remove(0);
-    std::fs::remove_file(photo.file_path.resolve(data)).unwrap();
+    let photos = [
+        common::photo_seeded(data, 100, 100, "2026-01-01T00:00:00.000Z", 1),
+        common::photo_seeded(data, 100, 100, "2026-01-01T01:00:00.000Z", 2),
+        common::photo_seeded(data, 100, 100, "2026-01-01T02:00:00.000Z", 3),
+    ];
+    let id = common::observation(&conn, data, &plan, 0.5, 0.5, "x", &photos);
+    let middle = checkflat_core::repo::photos::list_for_observation(&conn, &id).unwrap().remove(1);
+    std::fs::remove_file(middle.file_path.resolve(data)).unwrap();
     let input = prepare(data, collect(&conn, data, &pid, Lang::En, "UTC", 0).unwrap()).unwrap();
-    assert_eq!((input.stats.photos, input.stats.skipped_photos, input.stats.without_snapshot), (0, 1, 1));
+    assert_eq!((input.stats.photos, input.stats.skipped_photos, input.stats.without_snapshot), (2, 1, 1));
+    let captions: Vec<&str> = input.data.observations[0].photos.iter().map(|p| p.caption.as_str()).collect();
+    assert_eq!(captions, ["1. 01.01.2026 00:00", "2. 01.01.2026 02:00"], "the third photo is numbered 2");
     assert_eq!(render(&input).unwrap().pages, 2);
     assert!(matches!(collect(&conn, data, "nope", Lang::En, "UTC", 0), Err(checkflat_report::ReportError::Core(checkflat_core::CoreError::NotFound))));
 }
