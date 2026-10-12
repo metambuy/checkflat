@@ -35,6 +35,12 @@ pub fn tile_colour(size: u32, tx: u32, ty: u32) -> [u8; 3] {
     [(tx * 37 % 200 + 20) as u8, (ty * 53 % 200 + 20) as u8, (size / 64 % 256) as u8]
 }
 
+/// A grey per tile, for a pyramid without colour (black-on-white plans).
+pub fn tile_grey(size: u32, tx: u32, ty: u32) -> [u8; 3] {
+    let v = ((tx * 37 + ty * 53 + size / 64) % 200 + 20) as u8;
+    [v, v, v]
+}
+
 fn webp(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
     let img = image::RgbImage::from_pixel(w, h, image::Rgb(rgb));
     let mut out = Vec::new();
@@ -50,15 +56,20 @@ pub fn level(size: u32, width_pt: f64, height_pt: f64) -> TileLevel {
     TileLevel { size, width, height, cols: width.div_ceil(TILE), rows: height.div_ceil(TILE) }
 }
 
-/// Writes the levels in `sizes` (a prefix of `tiles::LEVELS`) and the manifest.
+/// Writes the levels in `sizes` (a prefix of `tiles::LEVELS`) and the manifest, tiles coloured
+/// by [`tile_colour`].
 pub fn pyramid(conn: &Connection, data: &Path, plan: &Plan, sizes: &[u32]) -> TileManifest {
+    pyramid_with(conn, data, plan, sizes, tile_colour)
+}
+
+pub fn pyramid_with(conn: &Connection, data: &Path, plan: &Plan, sizes: &[u32], colour: fn(u32, u32, u32) -> [u8; 3]) -> TileManifest {
     let levels: Vec<TileLevel> = sizes.iter().map(|&s| level(s, plan.width_pt, plan.height_pt)).collect();
     for l in &levels {
         for ty in 0..l.rows {
             for tx in 0..l.cols {
                 let w = (l.width - tx * TILE).min(TILE);
                 let h = (l.height - ty * TILE).min(TILE);
-                tiles::write_tile(conn, data, &plan.id, l.size, tx, ty, &webp(w, h, tile_colour(l.size, tx, ty))).unwrap();
+                tiles::write_tile(conn, data, &plan.id, l.size, tx, ty, &webp(w, h, colour(l.size, tx, ty))).unwrap();
             }
         }
     }

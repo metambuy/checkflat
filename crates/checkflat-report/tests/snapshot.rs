@@ -13,6 +13,10 @@ fn pixel_at(png: &[u8], fx: f64, fy: f64) -> [u8; 3] {
     [p[0], p[1], p[2]]
 }
 
+fn colour_type(png: &[u8]) -> image::ColorType {
+    image::load_from_memory(png).unwrap().color()
+}
+
 #[test]
 fn crop_comes_from_the_4096_level_and_shows_the_tile_under_the_pin() {
     let dir = tempfile::tempdir().unwrap();
@@ -30,6 +34,7 @@ fn crop_comes_from_the_4096_level_and_shows_the_tile_under_the_pin() {
     let crop = snapshot::crop(&tiles_dir, level, &win).unwrap();
     assert_eq!(crop.width.max(crop.height), CROP_PX, "819 px window resized to 800");
     assert!((crop.aspect() - 1.0).abs() < 0.01, "square window");
+    assert!(!crop.grey && colour_type(&crop.png) == image::ColorType::Rgb8, "coloured tiles stay RGB");
 
     // The pin's pixel is the colour of the 4096-level tile under it.
     let (px, py) = snapshot::pin_in_window(&win, xn, yn);
@@ -52,9 +57,36 @@ fn overview_is_the_whole_1024_level() {
     let tiles_dir = checkflat_core::paths::plan_tiles_dir(&pid, &plan.id).resolve(data);
     let o = snapshot::overview(&tiles_dir, &m).unwrap();
     assert_eq!((o.width, o.height), (m.levels[0].width, m.levels[0].height));
+    assert!(!o.grey && colour_type(&o.png) == image::ColorType::Rgb8);
     assert_eq!(pixel_at(&o.png, 0.0, 0.0), common::tile_colour(1024, 0, 0));
     assert_eq!(pixel_at(&o.png, 1.0, 1.0), common::tile_colour(1024, 1, 1));
     assert_eq!(pixel_at(&o.png, 0.9, 0.1), common::tile_colour(1024, 1, 0));
+}
+
+#[test]
+fn a_plan_without_colour_gives_greyscale_snapshots() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = common::open(data);
+    let pid = common::project(&conn, "P", "");
+    let plan = common::plan(&conn, data, &pid, "A1", common::A1);
+    let m = common::pyramid_with(&conn, data, &plan, &[1024, 2048, 4096], common::tile_grey);
+    let tiles_dir = checkflat_core::paths::plan_tiles_dir(&pid, &plan.id).resolve(data);
+
+    let o = snapshot::overview(&tiles_dir, &m).unwrap();
+    assert!(o.grey && colour_type(&o.png) == image::ColorType::L8);
+    assert_eq!(pixel_at(&o.png, 0.0, 0.0), common::tile_grey(1024, 0, 0));
+    assert_eq!(pixel_at(&o.png, 1.0, 1.0), common::tile_grey(1024, 1, 1));
+
+    let (xn, yn) = (0.51, 0.47);
+    let win = snapshot::window(xn, yn, plan.width_pt, plan.height_pt);
+    let level = snapshot::crop_level(&m).unwrap();
+    let crop = snapshot::crop(&tiles_dir, level, &win).unwrap();
+    assert!(crop.grey && colour_type(&crop.png) == image::ColorType::L8);
+    assert_eq!(crop.width.max(crop.height), CROP_PX);
+    let (px, py) = snapshot::pin_in_window(&win, xn, yn);
+    let (lx, ly) = ((xn * f64::from(level.width)) as u32, (yn * f64::from(level.height)) as u32);
+    assert_eq!(pixel_at(&crop.png, px, py), common::tile_grey(4096, lx / TILE, ly / TILE));
 }
 
 #[test]

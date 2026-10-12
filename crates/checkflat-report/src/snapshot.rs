@@ -1,7 +1,9 @@
 //! Plan snapshots stitched from the tile cache (D-014, D-024): a square crop around the pin and
-//! an overview of the whole plan, both PNG. The pin and the red box are *not* drawn here — the
-//! Typst template places them as vectors from the fractions this module computes, so the
-//! overview image is the same bytes for every observation of a plan (embedded once).
+//! an overview of the whole plan, both PNG — greyscale when the image carries no colour (most
+//! plans are black on white; typst-pdf embeds a Luma8 PNG as DeviceGray at a third of the raw
+//! size), RGB otherwise. The pin and the red box are *not* drawn here — the Typst template places
+//! them as vectors from the fractions this module computes, so the overview image is the same
+//! bytes for every observation of a plan (embedded once).
 use std::path::Path;
 
 use checkflat_core::repo::tiles::{TileLevel, TileManifest, TILE};
@@ -16,6 +18,10 @@ use crate::{ReportError, Result};
 pub const CROP_FRACTION: f64 = 0.20;
 /// Longest side of the crop image; prints at 80 mm (~250 dpi). Picks the 4096 level.
 pub const CROP_PX: u32 = 800;
+/// Largest per-pixel chroma (max − min channel) a snapshot may have and still be written as
+/// greyscale. A black-on-white plan through the lossy WebP tiles measures 1; the faintest
+/// coloured layer is far above (a client plan's overview measured 189).
+pub const GREY_CHROMA_MAX: u8 = 8;
 
 /// A crop window in plan fractions (0–1 of width and height).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -60,6 +66,8 @@ pub struct Snapshot {
     pub png: Vec<u8>,
     pub width: u32,
     pub height: u32,
+    /// Written as an 8-bit greyscale PNG (every pixel within [`GREY_CHROMA_MAX`]).
+    pub grey: bool,
 }
 
 impl Snapshot {
@@ -126,12 +134,27 @@ fn stitch(tiles_dir: &Path, level: &TileLevel, x0: u32, y0: u32, w: u32, h: u32)
     Ok(out)
 }
 
+/// True when no pixel's chroma exceeds [`GREY_CHROMA_MAX`].
+fn is_grey(img: &RgbImage) -> bool {
+    img.pixels().all(|p| {
+        let (lo, hi) = p.0.iter().fold((u8::MAX, 0), |(lo, hi), &c| (lo.min(c), hi.max(c)));
+        hi - lo <= GREY_CHROMA_MAX
+    })
+}
+
+/// Greyscale PNG (L8) when the image has no colour, RGB PNG otherwise.
 fn encode(img: &RgbImage) -> Result<Snapshot> {
+    let grey = is_grey(img);
     let mut png = Vec::new();
-    PngEncoder::new_with_quality(&mut png, CompressionType::Default, PngFilter::Adaptive)
-        .write_image(img.as_raw(), img.width(), img.height(), ExtendedColorType::Rgb8)
-        .map_err(|e| ReportError::Image(e.to_string()))?;
-    Ok(Snapshot { png, width: img.width(), height: img.height() })
+    let encoder = PngEncoder::new_with_quality(&mut png, CompressionType::Default, PngFilter::Adaptive);
+    let written = if grey {
+        let luma = image::imageops::grayscale(img);
+        encoder.write_image(luma.as_raw(), img.width(), img.height(), ExtendedColorType::L8)
+    } else {
+        encoder.write_image(img.as_raw(), img.width(), img.height(), ExtendedColorType::Rgb8)
+    };
+    written.map_err(|e| ReportError::Image(e.to_string()))?;
+    Ok(Snapshot { png, width: img.width(), height: img.height(), grey })
 }
 
 #[cfg(test)]
@@ -169,6 +192,27 @@ mod tests {
         // Degenerate: a plan narrower than the window shows all of it.
         let n = window(0.5, 0.5, 100.0, 1000.0);
         assert!(close(n.w, 1.0) && close(n.x, 0.0));
+    }
+
+    #[test]
+    fn encode_writes_greyscale_only_when_every_pixel_is_within_the_chroma_threshold() {
+        let colour_type = |s: &Snapshot| image::load_from_memory(&s.png).unwrap().color();
+        // Anti-aliased black on white with the chroma noise lossy tiles leave: greyscale.
+        let mut img = RgbImage::from_fn(64, 64, |x, y| if (x + y) % 7 == 0 { image::Rgb([0, 0, 0]) } else { image::Rgb([255, 255, 255]) });
+        img.put_pixel(3, 3, image::Rgb([120, 128, 124]));
+        let s = encode(&img).unwrap();
+        assert!(s.grey);
+        assert_eq!(colour_type(&s), image::ColorType::L8);
+        assert_eq!((s.width, s.height), (64, 64));
+        let decoded = image::load_from_memory(&s.png).unwrap();
+        assert_eq!(decoded.get_pixel(0, 0)[0], 0);
+        assert_eq!(decoded.get_pixel(1, 0)[0], 255);
+        // One pixel just over the threshold keeps the whole image RGB.
+        img.put_pixel(3, 3, image::Rgb([120, 129, 120]));
+        let s = encode(&img).unwrap();
+        assert!(!s.grey);
+        assert_eq!(colour_type(&s), image::ColorType::Rgb8);
+        assert_eq!(image::load_from_memory(&s.png).unwrap().get_pixel(3, 3).0, [120, 129, 120, 255]);
     }
 
     #[test]
