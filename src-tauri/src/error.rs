@@ -34,6 +34,15 @@ impl From<checkflat_core::CoreError> for AppError {
     }
 }
 
+impl From<checkflat_report::ReportError> for AppError {
+    fn from(e: checkflat_report::ReportError) -> Self {
+        match e {
+            checkflat_report::ReportError::Core(c) => c.into(),
+            other => AppError::new("report", other.to_string()),
+        }
+    }
+}
+
 impl From<std::io::Error> for AppError {
     fn from(e: std::io::Error) -> Self {
         AppError::new("io", e.to_string())

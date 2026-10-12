@@ -123,13 +123,16 @@ jobs:
           mkdir -p out
           cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk "out/checkflat-$VERSION-$VERSION_CODE-arm64.apk"
 
+      # The APK byte size is the instrument for size decisions (D-004, D-024); the artifact zip is smaller.
       - name: Verify signature and version
         run: |
           APK=$(ls out/*.apk)
           BT="$ANDROID_SDK_ROOT/build-tools/36.0.0"
           "$BT/apksigner" verify --print-certs "$APK" | tee certs.txt
+          BYTES=$(stat -c %s "$APK")
           { echo "### $(basename "$APK")"; echo;
             "$BT/aapt2" dump badging "$APK" | grep -E "^package:" ;
+            echo; echo "APK size: $BYTES bytes ($(awk "BEGIN{printf \"%.1f\", $BYTES/1048576}") MB)";
             echo; echo '```'; grep -E "SHA-256" certs.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
@@ -138,77 +141,8 @@ jobs:
           path: out/*.apk
           if-no-files-found: error
 
-  # Spike C size comparison: three release APKs (both / typst only / printpdf only).
-  # Manual only (workflow_dispatch) — too slow for every push, and the numbers only matter when the engine choice is revisited.
-  android-size:
-    name: Android release APK sizes (manual)
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.2.12479018"
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-
-      - name: Install frontend deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare output dir
-        run: mkdir -p out
-
-      # Spike C: shipped size per report engine. Release profile (LTO, opt-level z, strip), unsigned APK —
-      # only the size is of interest. The engine set comes from tauri.conf.json `build.features`,
-      # overridden per variant with `-c` (the Tauri CLI has no --no-default-features).
-      - name: Release APK size — both engines
-        env:
-          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
-        run: |
-          pnpm tauri android build --apk --target aarch64
-          cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk out/checkflat-release-both.apk
-      - name: Release APK size — typst only
-        env:
-          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
-        run: |
-          pnpm tauri android build --apk --target aarch64 -c '{"build":{"features":["report-typst"]}}'
-          cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk out/checkflat-release-typst.apk
-      - name: Release APK size — printpdf only
-        env:
-          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
-        run: |
-          pnpm tauri android build --apk --target aarch64 -c '{"build":{"features":["report-printpdf"]}}'
-          cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk out/checkflat-release-printpdf.apk
-
-      - name: APK sizes
-        run: |
-          { echo "### APK sizes (aarch64)"; echo; echo '| variant | bytes | MB |'; echo '|---|---|---|';
-            for f in out/*.apk; do b=$(stat -c %s "$f"); echo "| $(basename "$f") | $b | $(awk "BEGIN{printf \"%.1f\", $b/1048576}") |"; done; } | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android-release-apks
-          path: out/*.apk
-          if-no-files-found: error
+  # The Spike C size job (three engine variants, D-005) was removed in Sprint 5: the app has one
+  # report engine now, and `android-release` prints the APK size on every run (D-024).
 
   windows:
     name: Windows NSIS installer
@@ -232,8 +166,9 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
-      - name: Spike C unit tests (both engines)
-        run: cargo test -p report-spike --features typst,printpdf
+      # Typst and the bundled tz database on Windows (the report is also produced on the laptop).
+      - name: Report tests (Typst, time zones)
+        run: cargo test -p checkflat-report
 
       - name: Build NSIS installer
         run: pnpm tauri build --bundles nsis

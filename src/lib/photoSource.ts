@@ -4,11 +4,8 @@
 // (null) and is not an error.
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, type StagedPhoto } from "./api";
+import { api, utcOffsetMin, type StagedPhoto } from "./api";
 import { isAndroid } from "./platform";
-
-/** The device's zone in minutes east of UTC, for EXIF times that state none. */
-const utcOffsetMin = () => -new Date().getTimezoneOffset();
 
 async function pathFrom(command: "capture" | "pick_image" | "take_recovered_capture"): Promise<string | null> {
   const r = await invoke<{ path?: string | null }>(`plugin:camera-capture|${command}`);

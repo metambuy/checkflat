@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, asAppError, ptToMm, type AppError, type Plan, type Project } from "../api";
-  import { t } from "../i18n.svelte";
+  import { api, asAppError, deviceTimeZone, ptToMm, utcOffsetMin, type AppError, type Plan, type Project, type ReportResult } from "../api";
+  import { lang, t, type Lang } from "../i18n.svelte";
   import { go } from "../nav.svelte";
   import { addressSaver, type SaveStatus } from "../addressSaver";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
@@ -20,6 +20,23 @@
   let renamingPlan = $state<Plan | null>(null);
   let planTitle = $state("");
   let planToDelete = $state<Plan | null>(null);
+  // Report (Sprint 5, temporary action until share/save in Sprint 6): language chosen here,
+  // defaulting to the UI language; the PDF is written to the app data dir and its path shown.
+  let reportLang = $state<Lang>(lang());
+  let generating = $state(false);
+  let report = $state<ReportResult | null>(null);
+
+  async function generateReport() {
+    generating = true;
+    report = null;
+    try {
+      report = await api.generateReport(id, reportLang, deviceTimeZone(), utcOffsetMin());
+    } catch (e) {
+      error = asAppError(e);
+    } finally {
+      generating = false;
+    }
+  }
 
   async function refresh() {
     try {
@@ -88,6 +105,24 @@
           autocomplete="off"
         />
       </label>
+      <div class="row report">
+        <label class="row">
+          <span class="muted">{t("report.language")}</span>
+          <select bind:value={reportLang} disabled={generating}>
+            <option value="en">{t("lang.en")}</option>
+            <option value="pt">{t("lang.pt")}</option>
+          </select>
+        </label>
+        <button class="primary" onclick={generateReport} disabled={generating}>{t("report.generate")}</button>
+        {#if generating}<span class="muted" aria-live="polite">{t("report.generating")}</span>{/if}
+      </div>
+      {#if report}
+        <p class="muted done" aria-live="polite">
+          {t("report.done", { path: report.path, pages: report.pages, kb: Math.round(report.bytes / 1024), ms: report.totalMs })}
+          {#if report.stats.skippedPhotos > 0}<br />{t("report.skipped_photos", { count: report.stats.skippedPhotos })}{/if}
+          <br /><code>snapshots {report.stats.snapshotMs} ms · photos {report.stats.photoMs} ms · compile {report.compileMs} ms · pdf {report.pdfMs} ms · {report.stats.observations} obs · {report.stats.photos} photos · {report.stats.withoutSnapshot} without snapshot</code>
+        </p>
+      {/if}
     </header>
 
     <div class="row">
@@ -141,4 +176,7 @@
   .status { font-size: 12px; margin-left: 0.5rem; color: #666; }
   .status.saved { color: #2e7d32; }
   .status.error { color: #b3261e; }
+  .report { margin-top: 0.75rem; }
+  .done { word-break: break-all; }
+  .done code { font-size: 11px; }
 </style>

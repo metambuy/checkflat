@@ -98,5 +98,20 @@
   "settings.next_ref": "Next ref: {ref}",
   "settings.fractions": "Fractions",
   "settings.fractions_empty": "No fractions yet. They are added here or when saving an observation.",
-  "settings.fraction_delete": "Remove fraction {code}"
+  "settings.fraction_delete": "Remove fraction {code}",
+  "report.generate": "Generate report",
+  "report.generating": "Generating the report…",
+  "report.done": "Report written: {path} — {pages} pages, {kb} KB, {ms} ms",
+  "report.skipped_photos": "{count} photo(s) could not be read and were left out.",
+  "report.language": "Report language",
+  "report.title": "Site visit report",
+  "report.date": "Date",
+  "report.id": "ID",
+  "report.plan": "Plan",
+  "report.description": "Description",
+  "report.images": "Images",
+  "report.no_snapshot": "Plan not prepared on this device",
+  "report.no_observations": "No open observations.",
+  "error.report": "The report could not be generated: {message}",
+  "dev.seed": "Seed observations"
 }

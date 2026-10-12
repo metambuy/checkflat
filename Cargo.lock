@@ -484,9 +484,9 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "checkflat-core",
+ "checkflat-report",
  "glob",
  "log",
- "report-spike",
  "serde",
  "serde_json",
  "tauri",
@@ -512,6 +512,25 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "uuid",
+]
+
+[[package]]
+name = "checkflat-report"
+version = "0.1.0"
+dependencies = [
+ "checkflat-core",
+ "comemo",
+ "image",
+ "jiff",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "typst",
+ "typst-as-lib",
+ "typst-layout",
+ "typst-pdf",
 ]
 
 [[package]]

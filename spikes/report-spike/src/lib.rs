@@ -7,8 +7,9 @@ mod printpdf_engine;
 #[cfg(feature = "typst")]
 mod typst_engine;
 
-pub const FONT_REGULAR: &[u8] = include_bytes!("../assets/LiberationSans-Regular.ttf");
-pub const FONT_BOLD: &[u8] = include_bytes!("../assets/LiberationSans-Bold.ttf");
+// The fonts moved to the report crate in Sprint 5; the spike keeps compiling against them.
+pub const FONT_REGULAR: &[u8] = include_bytes!("../../../crates/checkflat-report/assets/fonts/LiberationSans-Regular.ttf");
+pub const FONT_BOLD: &[u8] = include_bytes!("../../../crates/checkflat-report/assets/fonts/LiberationSans-Bold.ttf");
 pub const SAMPLE_JPG: &[u8] = include_bytes!("../assets/sample.jpg");
 
 /// Content of the one-page sample report. Identical for both engines.

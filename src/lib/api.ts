@@ -124,6 +124,27 @@ export interface TileInfo {
   manifest: TileManifest | null;
 }
 
+/** What `generate_report` did (Sprint 5, temporary action; share/save is Sprint 6). */
+export interface ReportResult {
+  /** Absolute path of the written PDF. */
+  path: string;
+  bytes: number;
+  pages: number;
+  stats: {
+    observations: number;
+    photos: number;
+    /** Photos whose file could not be read; left out of the report. */
+    skippedPhotos: number;
+    /** Observations without a plan snapshot (plan never prepared on this device). */
+    withoutSnapshot: number;
+    snapshotMs: number;
+    photoMs: number;
+  };
+  compileMs: number;
+  pdfMs: number;
+  totalMs: number;
+}
+
 export function isAppError(e: unknown): e is AppError {
   return typeof e === "object" && e !== null && "code" in e && "message" in e;
 }
@@ -180,6 +201,22 @@ export const api = {
     invoke<void>("write_plan_tile", { planId, size, x, y, data }),
   writePlanTileManifest: (planId: string, manifest: TileManifest) => invoke<void>("write_plan_tile_manifest", { planId, manifest }),
   clearPlanTiles: (planId: string) => invoke<void>("clear_plan_tiles", { planId }),
+  /** Writes the project's report PDF. `timeZone`: IANA name of the device's zone; `utcOffsetMin`: its current offset (fallback). */
+  generateReport: (projectId: string, lang: "en" | "pt", timeZone: string, utcOffsetMin: number) =>
+    invoke<ReportResult>("generate_report", { projectId, lang, timeZone, utcOffsetMin }),
+  /** Debug builds only (the command does not exist in release builds): seeds `count` observations on a plan. */
+  devSeedObservations: (planId: string, count: number) => invoke<number>("dev_seed_observations", { planId, count }),
 };
+
+/** The device's IANA time zone (e.g. "Europe/Lisbon"); "" when the WebView cannot say. */
+export function deviceTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+  } catch {
+    return "";
+  }
+}
+/** Current offset in minutes east of UTC (same convention as `stage_photo`). */
+export const utcOffsetMin = () => -new Date().getTimezoneOffset();
 
 export const ptToMm = (pt: number) => Math.round((pt / 72) * 25.4);
