@@ -308,6 +308,27 @@ fn fraction_codes_fold_case_beyond_ascii() {
 }
 
 #[test]
+fn open_observations_of_a_project_list_newest_first() {
+    // Report order (client 2026-10-01): by creation time, descending, across all plans of the
+    // project; resolved ones are left out; ids (UUID v7) break ties inside one millisecond.
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let staged = plans::stage(dir.path(), Cursor::new(pdf::make_pdf(&[(841.89, 595.28)], 0))).unwrap();
+    let plan2 = plans::import(&conn, dir.path(), &plan.project_id, &staged.token, "A4").unwrap();
+    let first = create(&conn, &plan, "").unwrap();
+    let second = create(&conn, &plan2, "").unwrap();
+    let third = create(&conn, &plan, "").unwrap();
+    let ids = |conn: &Connection| -> Vec<String> {
+        observations::list_open_for_project(conn, &plan.project_id).unwrap().into_iter().map(|o| o.id).collect()
+    };
+    assert_eq!(ids(&conn), [third.id.clone(), second.id.clone(), first.id.clone()]);
+    conn.execute("UPDATE observation SET resolved_at = '2026-10-12T10:00:00.000Z' WHERE id = ?1", [&second.id]).unwrap();
+    assert_eq!(ids(&conn), [third.id.clone(), first.id.clone()]);
+    assert!(ids(&conn).iter().all(|id| id != &plan2.id));
+    assert!(observations::list_open_for_project(&conn, "missing").unwrap().is_empty());
+}
+
+#[test]
 fn ref_settings_are_trimmed_once_and_stored_as_validated() {
     let dir = tempfile::tempdir().unwrap();
     let (conn, plan) = setup(dir.path());

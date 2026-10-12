@@ -96,5 +96,7 @@ pub struct Photo {
     pub file_path: RelPath,
     /// UTC, RFC 3339 (EXIF capture time, or the import time when the file has none).
     pub taken_at: String,
+    /// Annotation shapes (Sprint 4), flattened onto the photo at report time; `None` until drawn.
+    pub annotation_json: Option<String>,
     pub created_at: String,
 }

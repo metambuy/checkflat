@@ -21,6 +21,7 @@ pub const TMP_DIR: &str = "tmp";
 pub const PLANS_DIR: &str = "plans";
 pub const PHOTOS_DIR: &str = "photos";
 pub const TILES_DIR: &str = "tiles";
+pub const REPORTS_DIR: &str = "reports";
 
 /// A validated path relative to the app data dir: `/`-separated, no absolute form, no `..`,
 /// no `\\`, `:` or control characters (string rules, identical on every OS).
@@ -127,6 +128,13 @@ pub fn staging_photo(token: &str) -> RelPath {
 
 pub fn photo_file(project_id: &str, photo_id: &str) -> RelPath {
     RelPath::new(&format!("{PROJECTS_DIR}/{project_id}/{PHOTOS_DIR}/{photo_id}.jpg")).expect("valid")
+}
+
+/// A generated report (Sprint 5, temporary location until share/save in Sprint 6): at the data-dir
+/// root, outside `projects/` and `tmp/`, so the startup sweep never touches it. `stamp` is a
+/// [`clock::now_compact`] value.
+pub fn report_file(project_id: &str, stamp: &str) -> RelPath {
+    RelPath::new(&format!("{REPORTS_DIR}/{project_id}-{stamp}.pdf")).expect("valid")
 }
 
 /// What the startup sweep did. Paths are relative to the data dir.
@@ -369,6 +377,7 @@ mod tests {
         assert_eq!(ok.resolve(Path::new("/data")), PathBuf::from("/data/projects/x/plans/y.pdf"));
         assert_eq!(plan_file("p", "q").as_str(), "projects/p/plans/q.pdf");
         assert_eq!(staging_file("t").as_str(), "tmp/t.pdf");
+        assert_eq!(report_file("p", "20261012T100000000Z").as_str(), "reports/p-20261012T100000000Z.pdf");
         let json = serde_json::to_string(&ok).unwrap();
         assert_eq!(json, "\"projects/x/plans/y.pdf\"");
         assert!(serde_json::from_str::<RelPath>("\"../x\"").is_err());

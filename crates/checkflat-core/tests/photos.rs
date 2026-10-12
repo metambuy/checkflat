@@ -158,8 +158,13 @@ fn save_moves_the_photo_into_the_project_and_records_it() {
         assert_eq!(r.file_path, paths::photo_file(&plan.project_id, &r.id));
         assert!(r.file_path.resolve(dir.path()).is_file());
         assert!(r.visit_id.is_none());
+        assert!(r.annotation_json.is_none(), "nothing drawn yet (Sprint 4)");
     }
     assert!(tmp_files(dir.path()).is_empty(), "staged files were moved, not copied");
+    // The annotation column (v1 schema) reads back once Sprint 4 writes it.
+    conn.execute("UPDATE photo SET annotation_json = '{\"shapes\":[]}' WHERE id = ?1", [&rows[0].id]).unwrap();
+    let rows = photo_repo::list_for_observation(&conn, &obs.id).unwrap();
+    assert_eq!(rows[0].annotation_json.as_deref(), Some("{\"shapes\":[]}"));
 }
 
 #[test]

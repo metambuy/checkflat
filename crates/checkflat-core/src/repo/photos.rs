@@ -20,6 +20,7 @@ fn row_to_photo(r: &Row<'_>) -> rusqlite::Result<Photo> {
         visit_id: r.get("visit_id")?,
         file_path: RelPath::new(&fp).map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?,
         taken_at: r.get("taken_at")?,
+        annotation_json: r.get("annotation_json")?,
         created_at: r.get("created_at")?,
     })
 }
