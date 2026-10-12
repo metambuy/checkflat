@@ -70,6 +70,16 @@ pub fn list_for_plan(conn: &Connection, plan_id: &str) -> Result<Vec<Observation
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Open observations of a project, newest first (report order, client 2026-10-01). `id` is a
+/// UUID v7, so it breaks ties in the same millisecond chronologically. Sprint 7 adds the
+/// closed section.
+pub fn list_open_for_project(conn: &Connection, project_id: &str) -> Result<Vec<Observation>> {
+    let mut stmt =
+        conn.prepare(&format!("{SELECT} WHERE o.project_id = ?1 AND o.resolved_at IS NULL ORDER BY o.created_at DESC, o.id DESC"))?;
+    let rows = stmt.query_map([project_id], row_to_observation)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// The number [`assign_ref`] would give next for `fraction` under `scope` (read-only; the
 /// fraction need not exist yet). The number is never below an existing seq + 1 in the same scope,
 /// so a seq edited upwards or an imported row cannot collide.

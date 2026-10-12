@@ -31,6 +31,8 @@ AVDs used for the spikes (create with `avdmanager create avd -n <name> -k "syste
 
 `hw.camera.back=virtualscene` gives the camera intent a fake 3D scene, so photo capture can be tested without hardware.
 
+The macOS window cannot import a plan: WKWebView has no WebP encoder, so tile generation stops with "this WebView cannot encode WebP" (`src/lib/viewer/tiles.ts:120`; Android WebView and Windows WebView2 encode WebP). Anything involving a plan is tested on the emulator.
+
 ## Client data
 `Examples/` (client plans) is gitignored and must never be committed; `public/spike/` stays ignored as a safety net. Plans are tested the way the client uses them: import through the app. On an emulator or phone, put the PDF where the Android picker finds it:
 
@@ -40,7 +42,7 @@ adb push Examples/c-JS00-AM01.pdf /sdcard/Download/   # then Import plan → ☰
 The first open renders the plan's tile pyramid once (D-014); afterwards it opens instantly.
 
 ## Data directory
-Tauri app data dir (`com.checkflat.app`): `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>` before migrations), `projects/<project_id>/plans/<plan_id>.pdf`, `projects/.trash/` (quarantine, purged after 7 days), `tmp/` (import staging). All DB paths are relative to this dir. macOS dev: `~/Library/Application Support/com.checkflat.app`.
+Tauri app data dir (`com.checkflat.app`): `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>` before migrations), `projects/<project_id>/plans/<plan_id>.pdf`, `projects/.trash/` (quarantine, purged after 7 days), `tmp/` (import staging), `reports/` (generated PDFs, Sprint 5's temporary location). All DB paths are relative to this dir. macOS dev: `~/Library/Application Support/com.checkflat.app`.
 
 ## Commands
 ```sh
@@ -48,8 +50,9 @@ pnpm install                  # also copies PDF.js cmaps/standard_fonts/wasm/icc
 pnpm tauri dev                # desktop window on the host (macOS is not a target, just the fastest loop)
 pnpm tauri android dev        # on the running emulator / connected phone
 pnpm tauri android build --debug --apk --target aarch64   # local debug APK
-cargo test -p report-spike --features typst,printpdf      # Spike C engine tests; PDFs land in spikes/out/
-pnpm tauri android build --apk --target aarch64 -c '{"build":{"features":["report-typst"]}}'  # single-engine release APK (size only)
+cargo test -p checkflat-report                             # report tests; sample PDFs land in target/report-tests/
+cargo test --release -p checkflat-report --test report -- --ignored --nocapture   # 50 observations × 3 photos timing (D-024)
+cargo test -p report-spike --features typst,printpdf      # Spike C engine comparison (D-004); no longer in the app
 spikes/measure.sh             # Spike C clean/incremental build times per engine
 adb shell dumpsys meminfo com.checkflat.app               # memory numbers for Spike A
 ```

@@ -98,5 +98,20 @@
   "settings.next_ref": "Próxima ref.: {ref}",
   "settings.fractions": "Frações",
   "settings.fractions_empty": "Ainda sem frações. São adicionadas aqui ou ao guardar uma observação.",
-  "settings.fraction_delete": "Remover fração {code}"
+  "settings.fraction_delete": "Remover fração {code}",
+  "report.generate": "Gerar relatório",
+  "report.generating": "A gerar o relatório…",
+  "report.done": "Relatório gravado: {path} — {pages} páginas, {kb} KB, {ms} ms",
+  "report.skipped_photos": "{count} foto(s) não puderam ser lidas e ficaram de fora.",
+  "report.language": "Idioma do relatório",
+  "report.title": "Relatório de visita à obra",
+  "report.date": "Data",
+  "report.id": "ID",
+  "report.plan": "Planta",
+  "report.description": "Descrição",
+  "report.images": "Imagens",
+  "report.no_snapshot": "Planta não preparada neste dispositivo",
+  "report.no_observations": "Sem observações em aberto.",
+  "error.report": "Não foi possível gerar o relatório: {message}",
+  "dev.seed": "Semear observações"
 }

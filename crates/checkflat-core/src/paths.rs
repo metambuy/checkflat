@@ -6,6 +6,7 @@
 //! `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>`) at the root. The database only ever stores [`RelPath`]s.
 use std::collections::HashSet;
 use std::fmt;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -21,6 +22,7 @@ pub const TMP_DIR: &str = "tmp";
 pub const PLANS_DIR: &str = "plans";
 pub const PHOTOS_DIR: &str = "photos";
 pub const TILES_DIR: &str = "tiles";
+pub const REPORTS_DIR: &str = "reports";
 
 /// A validated path relative to the app data dir: `/`-separated, no absolute form, no `..`,
 /// no `\\`, `:` or control characters (string rules, identical on every OS).
@@ -127,6 +129,61 @@ pub fn staging_photo(token: &str) -> RelPath {
 
 pub fn photo_file(project_id: &str, photo_id: &str) -> RelPath {
     RelPath::new(&format!("{PROJECTS_DIR}/{project_id}/{PHOTOS_DIR}/{photo_id}.jpg")).expect("valid")
+}
+
+/// A generated report (Sprint 5, temporary location until share/save in Sprint 6): at the data-dir
+/// root, outside `projects/` and `tmp/`, so the startup sweep never touches it. `stamp` is a
+/// [`clock::now_compact`] value. [`write_report`] keeps one per project.
+pub fn report_file(project_id: &str, stamp: &str) -> RelPath {
+    RelPath::new(&format!("{REPORTS_DIR}/{project_id}-{stamp}.pdf")).expect("valid")
+}
+
+const REPORT_PART_EXT: &str = "pdf.part";
+
+/// Writes a generated report and returns its absolute path. The project's earlier reports and any
+/// leftover `.part` files are removed first (nothing else reclaims `reports/`, so it holds one PDF
+/// per project); the PDF goes through `<name>.pdf.part` + fsync + rename, and on any failure the
+/// `.part` is removed again.
+pub fn write_report(data_dir: &Path, project_id: &str, stamp: &str, pdf: &[u8]) -> Result<PathBuf> {
+    let dest = report_file(project_id, stamp).resolve(data_dir);
+    let dir = dest.parent().expect("report_file has a parent");
+    std::fs::create_dir_all(dir)?;
+    prune_reports(dir, project_id, &dest);
+    let part = dest.with_extension(REPORT_PART_EXT);
+    let written = std::fs::File::create(&part).and_then(|mut f| {
+        f.write_all(pdf)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&part, &dest)
+    });
+    if let Err(e) = written {
+        if let Err(rm) = std::fs::remove_file(&part) {
+            if rm.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("could not remove {}: {rm}", part.display());
+            }
+        }
+        return Err(e.into());
+    }
+    Ok(dest)
+}
+
+/// Removes the project's `reports/<project>-*.pdf` and `*.pdf.part` files other than `keep`.
+/// Regular files only (symlinks and directories are left alone); a failure is logged, not fatal.
+fn prune_reports(dir: &Path, project_id: &str, keep: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefix = format!("{project_id}-");
+    for f in entries.flatten() {
+        let p = f.path();
+        let name = f.file_name().to_string_lossy().into_owned();
+        let ours = name.starts_with(&prefix) && (name.ends_with(".pdf") || name.ends_with(&format!(".{REPORT_PART_EXT}")));
+        if !ours || p == keep || !is_real_file(&p) {
+            continue;
+        }
+        match std::fs::remove_file(&p) {
+            Ok(()) => log::info!("removed earlier report {name}"),
+            Err(e) => log::warn!("could not remove earlier report {name}: {e}"),
+        }
+    }
 }
 
 /// What the startup sweep did. Paths are relative to the data dir.
@@ -369,8 +426,37 @@ mod tests {
         assert_eq!(ok.resolve(Path::new("/data")), PathBuf::from("/data/projects/x/plans/y.pdf"));
         assert_eq!(plan_file("p", "q").as_str(), "projects/p/plans/q.pdf");
         assert_eq!(staging_file("t").as_str(), "tmp/t.pdf");
+        assert_eq!(report_file("p", "20261012T100000000Z").as_str(), "reports/p-20261012T100000000Z.pdf");
         let json = serde_json::to_string(&ok).unwrap();
         assert_eq!(json, "\"projects/x/plans/y.pdf\"");
         assert!(serde_json::from_str::<RelPath>("\"../x\"").is_err());
+    }
+
+    fn report_names(data: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(data.join(REPORTS_DIR)).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn write_report_keeps_one_pdf_per_project_and_leaves_no_part_file_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let first = write_report(data, "p1", "20261012T100000000Z", b"%PDF-1").unwrap();
+        assert_eq!(first, data.join("reports/p1-20261012T100000000Z.pdf"));
+        assert_eq!(std::fs::read(&first).unwrap(), b"%PDF-1");
+        write_report(data, "p2", "20261012T100000000Z", b"%PDF-2").unwrap();
+        std::fs::write(data.join("reports/p1-20261012T090000000Z.pdf.part"), b"interrupted").unwrap();
+        std::fs::write(data.join("reports/p1-notes.txt"), b"not a report").unwrap();
+
+        // A new report for p1 replaces its earlier one and the leftover .part; p2's stays.
+        let second = write_report(data, "p1", "20261012T110000000Z", b"%PDF-3").unwrap();
+        assert_eq!(std::fs::read(&second).unwrap(), b"%PDF-3");
+        assert_eq!(report_names(data), ["p1-20261012T110000000Z.pdf", "p1-notes.txt", "p2-20261012T100000000Z.pdf"]);
+
+        // The destination is blocked by a directory, so the rename fails: an error, and no .part behind.
+        std::fs::create_dir(data.join("reports/p1-20261012T120000000Z.pdf")).unwrap();
+        assert!(matches!(write_report(data, "p1", "20261012T120000000Z", b"%PDF-4"), Err(CoreError::Io(_))));
+        assert!(!data.join("reports/p1-20261012T120000000Z.pdf.part").exists());
     }
 }

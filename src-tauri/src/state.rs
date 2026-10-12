@@ -33,6 +33,16 @@ where
     T: Send + 'static,
     F: FnOnce(&Connection, &Path) -> checkflat_core::Result<T> + Send + 'static,
 {
+    run_db_with(app, f).await
+}
+
+/// [`run_db`] for closures with another error type (the report crate's).
+pub async fn run_db_with<T, E, F>(app: AppHandle, f: F) -> AppResult<T>
+where
+    T: Send + 'static,
+    E: Into<AppError> + Send + 'static,
+    F: FnOnce(&Connection, &Path) -> Result<T, E> + Send + 'static,
+{
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let conn = state.lock();
@@ -48,6 +58,16 @@ pub async fn run_fs<T, F>(app: AppHandle, f: F) -> AppResult<T>
 where
     T: Send + 'static,
     F: FnOnce(&Path) -> checkflat_core::Result<T> + Send + 'static,
+{
+    run_fs_with(app, f).await
+}
+
+/// [`run_fs`] for closures with another error type (the report crate's).
+pub async fn run_fs_with<T, E, F>(app: AppHandle, f: F) -> AppResult<T>
+where
+    T: Send + 'static,
+    E: Into<AppError> + Send + 'static,
+    F: FnOnce(&Path) -> Result<T, E> + Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();

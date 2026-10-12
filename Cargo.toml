@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/checkflat-core", "src-tauri", "src-tauri/plugins/camera-capture", "spikes/report-spike"]
+members = ["crates/checkflat-core", "crates/checkflat-report", "src-tauri", "src-tauri/plugins/camera-capture", "spikes/report-spike"]
 
 [profile.release]
 codegen-units = 1
@@ -8,6 +8,23 @@ lto = true
 opt-level = "z"
 panic = "abort"
 strip = true
+
+# Pixel work (photo downscaling, tile stitching, PNG/JPEG/WebP codecs) runs 2–3× slower at
+# opt-level z; these crates get speed, the rest of the binary keeps size (D-024).
+[profile.release.package.image]
+opt-level = 3
+[profile.release.package.image-webp]
+opt-level = 3
+[profile.release.package.zune-jpeg]
+opt-level = 3
+[profile.release.package.zune-core]
+opt-level = 3
+[profile.release.package.png]
+opt-level = 3
+[profile.release.package.fdeflate]
+opt-level = 3
+[profile.release.package.miniz_oxide]
+opt-level = 3
 
 # Debug builds: keep line tables for our crates, no debug info for dependencies
 # (typst + friends otherwise push the debug APK past 700 MB).
