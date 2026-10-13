@@ -444,3 +444,31 @@ Photos: 800 px / q70 ≈ 0.85× and 640 px / q75 ≈ 0.71× of the current 800 p
 
 **Not verified here:** the Mac dev build cannot import a plan (WKWebView has no WebP encoder, `src/lib/viewer/tiles.ts:120`), so the Generate click-through was done on the emulator debug build instead (51 observations, 103 pages, 17.2 MB — the size section above); the real phone (P30: ×2 time targets, memory unscaled; the client's Xiaomi), jiff on a vendor ROM's tzdata, and sharing the PDF from the phone (Sprint 6).
 
+## D-025 — Report layout from the client's answers, 3-photo limit (2026-10-13)
+**Context.** Sprint 5 (D-024) left the layout questions open with the client: one page per observation, the photo grid, the pin label, the plan title in the header. The client answered on 2026-10-13 (plan §0): (1) no page per observation — a continuous list, several per page, with a clear separation; the header + ID + plan row (crop and overview) stay together, the description and each photo with its caption are never split, photos may flow to the next page; (2) photos one below the other, not a two-column grid; (3) at most 3 photos per observation, enforced in the app; (4) the pin in the crop shows the marker and the number — the same label as the app pin; (5) the plan title next to the project name; (6) captions `n. dd.mm.yyyy hh:mm`, newest first by creation date, the cover and the ≈ 20 % crop stay as they are. **Still open with the client:** whether the crop needs more context than ≈ 20 % of the sheet (the reply was only "sim"), and the Aproplan sample pages, which were not sent. The photo sizes (landscape 80 mm wide, portrait ≤ 70 mm tall) are our Sprint 5 default and were kept — the client asked to keep them unless the layout showed a reason, and it did not (see below); they are not a client answer. No schema change; Sprint 5b, PR #5.
+
+**Layout** (`assets/report.typ`). One `pagebreak()` after the cover, then the observations in flow, `v(8mm)` between them (no filled band: the header keeps the mockup's style, project name 14 pt over a thin grey rule, now with the plan title right-aligned on the same line in 11 pt grey). What is kept together:
+
+| Piece | Breakable | How |
+|---|---|---|
+| Head: header + `ID` + rule + "Plan:" + crop/overview grid (≈ 104 mm) | no | one `block(breakable: false)` |
+| Rule + "Description:" + text | no, unless taller than `KEEP_MAX = 150mm` | `keep()`: `layout` + `measure`, then `block(breakable: h > KEEP_MAX)` — a longer description would otherwise overflow the page and be clipped; tested with 40 × the fixture text |
+| Rule + "Images:" | sticks to the first photo | `block(sticky: true)` |
+| Each photo frame + caption (≈ 60 mm landscape, ≈ 76 mm portrait) | no | the Sprint 5 `block(breakable: false)`, now one below the other with `v(4mm)` |
+
+The first build of this layout still gave 103 pages: Typst adds its paragraph/block spacing (1.2 em ≈ 4.4 mm) around every `#v()` between pieces, which made the head ≈ 129 mm — about 8 mm too tall to follow two landscape photos on a page, so every observation took exactly two pages, the second half empty. Inside the list `par.spacing` and `block.spacing` are therefore 0 and all spacing is explicit (head ≈ 104 mm). With 3 landscape photos an observation needs ≈ 360 mm, so the natural pattern is head + description + 2 photos on one page and the third photo at the top of the next, where the following observation starts: ≈ 1.35 pages per observation. One observation per page would need photos ≈ 45 mm tall (≈ 60 mm wide); that is a client/Sprint 6 question (together with the printed sample for the size options), not a change made here.
+
+**Pin label.** `ObservationData.marker` carries `refs::marker` (`3` per project, `PC-01` per fraction — exactly what the app pin shows). The template draws a stadium head (`rect(radius: r)`, `r = 2.8mm`) whose width follows the measured label (7 pt bold white, `context` + `measure`), with a triangular tail to the point. The head stays inside the crop: its centre is clamped horizontally to `[hw, W − hw]`, and when there is no room above the point (`py < h + r`) it hangs below it with the tail pointing up. D-024 relied on the head overflowing the crop box at the edges, which a wider label would have pushed into the overview 6 mm away or into the margin. Checked on the emulator PDF for the seeded corner pins ((0.01, 0.01): head below the point; (0.99, 0.98): head clamped at the bottom-right) and on the test PDFs for `PC-01` / `A-01` (the report fixture now numbers per fraction).
+
+**3-photo limit.** `repo/observations::MAX_PHOTOS = 3`, checked in `create_observation` (staged count) and `update_observation` (existing − removed + new) before anything is touched, next to the ≥ 1 rule, as `CoreError::PhotoLimit { max }` → `photo_limit` (`count` = max in the app error, EN/PT message). The sheet (`sheet/photos.ts`: `canAdd`, and `canSave` now also ≤ 3) disables Camera and Gallery — the Gallery button is the Windows file picker — at 3 with a muted hint. Dev → Seed creates exactly 3. Tests: four on create (nothing changes, no number consumed, the four staged files stay in `tmp/`), three ok, a fourth on edit refused with rows/files unchanged, one-out-one-in keeps three; `canAdd`/`canSave` in `photos.test.ts`.
+
+**Measurements** (the Sprint 5 data on the `Phone_API35` emulator, project `c-JS00-AM01`: 51 observations × 3 photos on the client's A1 plan, debug build, EN):
+
+| | before (Sprint 5, 2026-10-12) | after (Sprint 5b) |
+|---|---|---|
+| pages | 103 | **69** (−33 %) |
+| PDF bytes | 14,682,417 (14.0 MB) | **14,665,723** (14.0 MB; same images, fewer page objects) |
+| debug-build time | 374 s (D-024, three runs 232–400 s) | 105 s (snapshots 42 s, photos 59 s, compile 3.3 s, PDF 1.4 s — the host was idle this time; the debug build remains ~25× slower than release on the image work, D-024) |
+
+The Mac release harness on the pulled emulator data (`CHECKFLAT_DATA_DIR`, `measure_50_observations`) gives the same 69 pages and 14,666,997 B (cover date and metadata differ), 4.7 s total. The memory floor is unchanged: the same images are decoded (D-024). The P30 and the client's phone remain pending on hardware.
+

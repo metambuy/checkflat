@@ -105,5 +105,10 @@ pub fn photo_seeded(data: &Path, w: u32, h: u32, taken_at: &str, seed: u32) -> P
 }
 
 pub fn observation(conn: &Connection, data: &Path, plan: &Plan, x: f64, y: f64, description: &str, photos: &[PhotoInput]) -> String {
-    observations::create_observation(conn, data, &plan.id, x, y, "", description, photos).unwrap().id
+    observation_in(conn, data, plan, x, y, "", description, photos)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn observation_in(conn: &Connection, data: &Path, plan: &Plan, x: f64, y: f64, fraction: &str, description: &str, photos: &[PhotoInput]) -> String {
+    observations::create_observation(conn, data, &plan.id, x, y, fraction, description, photos).unwrap().id
 }

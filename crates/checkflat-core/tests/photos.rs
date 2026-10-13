@@ -193,6 +193,42 @@ fn a_photo_is_required_and_a_failed_save_changes_nothing() {
     assert!(save(&conn, dir.path(), &plan, &[good]).is_ok());
 }
 
+/// Client 2026-10-13 (D-025): one to three photos, on create and on edit.
+#[test]
+fn at_most_three_photos_on_create_and_edit() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let four: Vec<PhotoInput> = (0..4).map(|_| common::staged_photo(dir.path())).collect();
+
+    // Four on create: refused before anything is touched.
+    let err = save(&conn, dir.path(), &plan, &four).unwrap_err();
+    assert!(matches!(err, CoreError::PhotoLimit { max: 3 }), "{err:?}");
+    assert_eq!(common::count(&conn, "observation"), 0);
+    assert_eq!(projects::get(&conn, &plan.project_id).unwrap().next_seq, 1, "no number consumed");
+    assert_eq!(tmp_files(dir.path()).len(), 4, "staged files untouched");
+
+    // Three is the maximum.
+    let obs = save(&conn, dir.path(), &plan, &four[..3]).unwrap();
+    let ids = photo_ids(&conn, &obs.id);
+    assert_eq!(ids.len(), 3);
+    assert_eq!(tmp_files(dir.path()).len(), 1);
+
+    // Edit: a fourth is refused, rows and files unchanged, the staged file still in tmp/.
+    let err = observations::update_observation(&conn, dir.path(), &obs.id, "more", &four[3..], &[]).unwrap_err();
+    assert!(matches!(err, CoreError::PhotoLimit { max: 3 }), "{err:?}");
+    assert_eq!(observations::get(&conn, &obs.id).unwrap().description, "d");
+    assert_eq!(photo_ids(&conn, &obs.id), ids);
+    assert!(staging_photo(&four[3].token).resolve(dir.path()).is_file());
+
+    // Edit: one out, one in keeps three.
+    let edited = observations::update_observation(&conn, dir.path(), &obs.id, "swapped", &four[3..], &ids[..1]).unwrap();
+    assert_eq!(edited.description, "swapped");
+    let now = photo_ids(&conn, &obs.id);
+    assert_eq!(now.len(), 3);
+    assert!(!now.contains(&ids[0]));
+    assert!(tmp_files(dir.path()).is_empty());
+}
+
 #[test]
 fn deleting_a_pin_removes_its_photo_files() {
     let dir = tempfile::tempdir().unwrap();

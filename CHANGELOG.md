@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 5b — 2026-10-13 (report layout from the client's answers, 3-photo limit; D-025)
+- Report: the observations form a **continuous list** (several per page, newest first) instead of one page each; the header + ID + plan row of an observation stay together on one page, the description is never split (unless it is taller than 150 mm), the "Images" label sticks to the first photo, and the **photos follow one below the other** (single column), each with its caption kept together; `v(8mm)` between observations.
+- Report: the **pin in the crop carries the app's marker label** (`3`, or `PC-01` per fraction) in a stadium head sized from the label; the head is kept inside the crop (clamped horizontally, hung below the point when there is no room above) so a label at the plan edge stays legible and off the overview. The **plan title** is shown right-aligned next to the project name in the block header.
+- Core: **1–3 photos per observation** — `create_observation` and `update_observation` refuse more (`photo_limit`, EN/PT; `MAX_PHOTOS`), before anything is touched. Observation sheet: Camera and Gallery (= the Windows file picker) are disabled at 3 with a hint; `canAdd`/`canSave` in `sheet/photos.ts`.
+- Tests: core limit on create and edit (nothing changes, staged files stay in `tmp/`); frontend `canAdd`; report fixture numbers per fraction (markers `PC-01`/`A-01` in the saved PDFs), continuous-flow page counts, a description longer than a page still prints.
+- Measurements before/after on the emulator (51 observations × 3 photos on the A1 plan): D-025.
+
 ## Sprint 5 — 2026-10-12 (report; runs before Sprint 4, D-023/D-024)
 - New crate `crates/checkflat-report`: plan snapshots stitched in Rust from the tile cache (square crop ≈ 20 % of the sheet's long side around the pin, clamped inside the plan; overview from the 1024 level, one image per plan), the pin and the red box drawn as vectors by the Typst template; cover + one block per open observation (newest first, whole project) following the client's mockup; EN/PT strings from `i18n/*.json`, `lang: "pt"` hyphenation; Typst through `typst-as-lib` (D-004 follow-up closed: `typst` itself pulls `typst-html`/`typst-svg`).
 - Annotation hook `annotate::flatten` (returns the photo unchanged until Sprint 4) — every photo passes through it, then is downscaled to ≤ 800 px JPEG q80 for the PDF (Typst keeps every decoded image in memory for the whole compile; `comemo::evict` afterwards).

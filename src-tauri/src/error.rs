@@ -28,6 +28,7 @@ impl From<checkflat_core::CoreError> for AppError {
         match &e {
             C::MultiPage { pages } => out.pages = Some(*pages),
             C::PlanHasObservations { count } | C::FractionInUse { count } => out.count = Some(*count),
+            C::PhotoLimit { max } => out.count = Some(*max as i64),
             _ => {}
         }
         out

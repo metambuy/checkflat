@@ -3,8 +3,9 @@
   // description and photos. Edit mode (`observation` given): description and photos only; the
   // fraction and the ref are shown, not editable. Save hands the input to the plan screen, which
   // calls create_observation / update_observation once; nothing is saved here. Photos are staged
-  // as they are added (processed JPEGs in tmp/) and at least one must remain; staged files that
-  // are not saved are discarded when the sheet goes away.
+  // as they are added (processed JPEGs in tmp/); one to MAX_PHOTOS must remain, and the camera and
+  // the picker are not offered at the limit; staged files that are not saved are discarded when the
+  // sheet goes away.
   import { onDestroy, onMount, untrack } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { api, asAppError, type AppError, type Fraction, type Observation } from "../api";
@@ -12,7 +13,7 @@
   import { livePreview } from "../livePreview";
   import { capturePath, pickPath, stagePath } from "../photoSource";
   import { isAndroid } from "../platform";
-  import { acquirePhoto, addStaged, canSave, noPhotos, removeExisting, removeStaged, shown, toSave, watchReturn, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
+  import { acquirePhoto, addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, shown, toSave, watchReturn, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
   import { devlog } from "../devlog";
   import type { SheetState } from "../sheet/draft";
   import ErrorBanner from "../components/ErrorBanner.svelte";
@@ -107,7 +108,7 @@
   });
 
   async function add(getPath: () => Promise<string | null>) {
-    if (busy || saving) return;
+    if (saving || !canAdd(photos, busy)) return;
     photoError = null;
     // The camera may be the last thing this process does: store the input first.
     try {
@@ -193,13 +194,15 @@
       </ul>
       <div class="add-row">
         {#if camera}
-          <button type="button" onclick={() => add(capturePath)} disabled={busy || saving}>{t("photos.camera")}</button>
+          <button type="button" onclick={() => add(capturePath)} disabled={saving || !canAdd(photos, busy)}>{t("photos.camera")}</button>
         {/if}
-        <button type="button" onclick={() => add(pickPath)} disabled={busy || saving}>{t("photos.gallery")}</button>
+        <button type="button" onclick={() => add(pickPath)} disabled={saving || !canAdd(photos, busy)}>{t("photos.gallery")}</button>
         {#if phase === "preparing"}<span class="muted" aria-live="polite">{t("photos.preparing")}</span>{/if}
       </div>
-      {#if !busy && shown(photos).length === 0}
+      {#if !busy && count(photos) === 0}
         <p class="hint">{t("photos.hint")}</p>
+      {:else if !busy && count(photos) >= MAX_PHOTOS}
+        <p class="hint muted">{t("photos.limit", { count: MAX_PHOTOS })}</p>
       {/if}
     </div>
     <div class="actions">
@@ -228,6 +231,7 @@
   .x::before { content: "×"; position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; line-height: 22px; font-size: 18px; text-align: center; border-radius: 12px; background: #b3261e; color: #fff; }
   .add-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
   .hint { margin: 0.4rem 0 0; color: #b3261e; font-size: 0.9rem; }
+  .hint.muted { color: #666; }
   /* Phones: the sheet fills the screen so the keyboard leaves room for the description. */
   @media (max-width: 599px) {
     :global(.backdrop:has(.sheet)) { align-items: stretch; padding: 0; }

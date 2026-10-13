@@ -32,6 +32,8 @@ pub enum CoreError {
     FractionRequired,
     #[error("an observation needs at least one photo")]
     PhotoRequired,
+    #[error("an observation can have at most {max} photos")]
+    PhotoLimit { max: usize },
     #[error("file is not a readable image: {0}")]
     UnreadableImage(String),
     #[error("this image format (HEIC/HEIF) cannot be read on this device")]
@@ -56,6 +58,7 @@ impl CoreError {
             CoreError::FractionInUse { .. } => "fraction_in_use",
             CoreError::FractionRequired => "fraction_required",
             CoreError::PhotoRequired => "photo_required",
+            CoreError::PhotoLimit { .. } => "photo_limit",
             CoreError::UnreadableImage(_) => "unreadable_image",
             CoreError::UnsupportedImage => "image_unsupported",
         }

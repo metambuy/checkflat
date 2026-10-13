@@ -1,7 +1,10 @@
 // Photos of the observation sheet as pure state. `existing` are stored photos (edit mode),
 // `staged` are processed files waiting for Save, `removed` are stored photos marked for removal.
-// The save takes the staged ones and the removed ids; at least one photo must remain.
+// The save takes the staged ones and the removed ids; one to MAX_PHOTOS photos must remain.
 import type { Photo, PhotoInput, StagedPhoto } from "../api";
+
+/** Photos per observation (client 2026-10-13); the core enforces the same number (`photo_limit`). */
+export const MAX_PHOTOS = 3;
 
 export interface PhotoSet {
   existing: Photo[];
@@ -44,8 +47,11 @@ export function shown(s: PhotoSet): PhotoItem[] {
 
 export const count = (s: PhotoSet): number => shown(s).length;
 
-/** Save is allowed with at least one photo and nothing being processed. */
-export const canSave = (s: PhotoSet, busy: boolean): boolean => !busy && count(s) >= 1;
+/** Save is allowed with one to MAX_PHOTOS photos and nothing being processed. */
+export const canSave = (s: PhotoSet, busy: boolean): boolean => !busy && count(s) >= 1 && count(s) <= MAX_PHOTOS;
+
+/** The camera/picker is offered below MAX_PHOTOS photos and while nothing is being processed. */
+export const canAdd = (s: PhotoSet, busy: boolean): boolean => !busy && count(s) < MAX_PHOTOS;
 
 export const toSave = (s: PhotoSet): { photos: PhotoInput[]; removed: string[] } => ({
   photos: s.staged.map((p) => ({ token: p.token, takenAt: p.takenAt })),

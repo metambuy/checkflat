@@ -3,6 +3,8 @@ mod common;
 use std::path::Path;
 
 use checkflat_core::i18n::Lang;
+use checkflat_core::refs::{Scope, DEFAULT_TEMPLATE};
+use checkflat_core::repo::projects;
 use checkflat_core::rusqlite::Connection;
 use checkflat_report::{collect, prepare, render, ReportInput};
 
@@ -10,20 +12,23 @@ const PT_TEXT: &str = "Fissura horizontal na parede da sala, junto ao rodapé, c
 A superfície apresenta manchas de humidade na zona inferior, o que indica possível infiltração pela junta da caixilharia. \
 Recomenda-se abrir a zona afetada, verificar a impermeabilização e refazer o acabamento após a correção; reavaliar na próxima visita.";
 
-/// Project with an A1 plan (pyramid to 4096) and an A4 plan (never prepared); two observations.
+/// Project numbering per fraction (long pin labels such as `PC-01`) with an A1 plan (pyramid to
+/// 4096) and an A4 plan (never prepared); two observations.
 fn fixture(data: &Path) -> (Connection, String) {
     let conn = common::open(data);
     let pid = common::project(&conn, "Edifício LAMAS", "Rua das Flores 12, Porto");
+    projects::update_ref_settings(&conn, &pid, "LAM", DEFAULT_TEMPLATE, Scope::Fraction).unwrap();
     let a1 = common::plan(&conn, data, &pid, "Piso 1", common::A1);
     common::pyramid(&conn, data, &a1, &[1024, 2048, 4096]);
     let a4 = common::plan(&conn, data, &pid, "Piso 2", common::A4);
-    common::observation(&conn, data, &a1, 0.3, 0.6, PT_TEXT, &[common::photo(data, 1600, 1200, "2026-10-20T10:00:00.000Z")]);
-    common::observation(
+    common::observation_in(&conn, data, &a1, 0.3, 0.6, "A", PT_TEXT, &[common::photo(data, 1600, 1200, "2026-10-20T10:00:00.000Z")]);
+    common::observation_in(
         &conn,
         data,
         &a4,
         0.98,
         0.02,
+        "PC",
         "",
         &[common::photo(data, 1200, 1600, "2026-10-30T10:00:00.000Z"), common::photo(data, 600, 400, "2026-10-30T11:00:00.000Z")],
     );
@@ -43,7 +48,7 @@ fn make(conn: &Connection, data: &Path, pid: &str, lang: Lang) -> ReportInput {
 }
 
 #[test]
-fn report_has_a_cover_and_one_page_per_observation_newest_first() {
+fn report_has_a_cover_and_the_observations_in_a_continuous_list_newest_first() {
     let dir = tempfile::tempdir().unwrap();
     let (conn, pid) = fixture(dir.path());
     let input = make(&conn, dir.path(), &pid, Lang::Pt);
@@ -56,6 +61,8 @@ fn report_has_a_cover_and_one_page_per_observation_newest_first() {
     // Newest first: the A4 observation (no pyramid) comes before the A1 one.
     let (a4, a1) = (&d.observations[0], &d.observations[1]);
     assert_eq!((a4.plan_title.as_str(), a1.plan_title.as_str()), ("Piso 2", "Piso 1"));
+    assert_eq!((a4.display_ref.as_str(), a1.display_ref.as_str()), ("LAM-PC-01", "LAM-A-01"));
+    assert_eq!((a4.marker.as_str(), a1.marker.as_str()), ("PC-01", "A-01"), "the app's pin label");
     assert!(a4.crop.is_none() && a4.overview.is_none(), "plan never prepared on this device");
     assert_eq!(a4.photos.len(), 2);
     assert_eq!(a4.photos[0].caption, "1. 30.10.2026 10:00", "after the DST change: UTC+0");
@@ -78,16 +85,17 @@ fn report_has_a_cover_and_one_page_per_observation_newest_first() {
 
     let r = render(&input).unwrap();
     assert!(r.pdf.starts_with(b"%PDF"));
-    assert_eq!(r.pages, 3, "cover + 2 observations");
     save("report-pt.pdf", &r.pdf);
+    // Cover; the A4 observation (no snapshot) with both photos; the A1 observation (D-025).
+    assert_eq!(r.pages, 3);
     eprintln!("[measure] pt: {} bytes, compile {} ms, pdf {} ms, stats {:?}", r.pdf.len(), r.compile_ms, r.pdf_ms, input.stats);
 
     let en = make(&conn, dir.path(), &pid, Lang::En);
     assert_eq!((en.data.lang, en.data.region), ("en", None));
     assert_eq!(en.data.labels.images, "Images");
     let r = render(&en).unwrap();
-    assert_eq!(r.pages, 3);
     save("report-en.pdf", &r.pdf);
+    assert_eq!(r.pages, 3);
 }
 
 #[test]
@@ -115,8 +123,35 @@ fn empty_project_and_missing_photo_file() {
     assert_eq!((input.stats.photos, input.stats.skipped_photos, input.stats.without_snapshot), (2, 1, 1));
     let captions: Vec<&str> = input.data.observations[0].photos.iter().map(|p| p.caption.as_str()).collect();
     assert_eq!(captions, ["1. 01.01.2026 00:00", "2. 01.01.2026 02:00"], "the third photo is numbered 2");
-    assert_eq!(render(&input).unwrap().pages, 2);
+    assert_eq!(render(&input).unwrap().pages, 2, "cover; the head (no snapshot) and two square photos fit one page");
     assert!(matches!(collect(&conn, data, "nope", Lang::En, "UTC", 0), Err(checkflat_report::ReportError::Core(checkflat_core::CoreError::NotFound))));
+}
+
+/// Three photos one below the other take more than a page with the head: the list flows on,
+/// and a description longer than a page is not kept together (it would be clipped) but printed.
+#[test]
+fn long_blocks_flow_over_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = common::open(data);
+    let pid = common::project(&conn, "Flow", "");
+    let plan = common::plan(&conn, data, &pid, "P", common::A4);
+    common::pyramid(&conn, data, &plan, &[1024, 2048, 4096]);
+    let three = |n: u32| {
+        [
+            common::photo_seeded(data, 1600, 1200, "2026-01-01T00:00:00.000Z", n),
+            common::photo_seeded(data, 1200, 1600, "2026-01-01T01:00:00.000Z", n + 1),
+            common::photo_seeded(data, 1600, 1200, "2026-01-01T02:00:00.000Z", n + 2),
+        ]
+    };
+    common::observation(&conn, data, &plan, 0.5, 0.5, "short", &three(0));
+    let input = prepare(data, collect(&conn, data, &pid, Lang::En, "UTC", 0).unwrap()).unwrap();
+    assert_eq!(render(&input).unwrap().pages, 3, "cover + head/description/first photos + the rest");
+
+    common::observation(&conn, data, &plan, 0.5, 0.5, &PT_TEXT.repeat(40), &three(3));
+    let input = prepare(data, collect(&conn, data, &pid, Lang::En, "UTC", 0).unwrap()).unwrap();
+    let pages = render(&input).unwrap().pages;
+    assert!(pages >= 7, "the long description spreads over pages instead of being clipped: {pages}");
 }
 
 /// The Sprint 5 load case (D-024): 50 observations × 3 photos on an A1 + an A4 plan, both with
