@@ -86,6 +86,8 @@ pub struct Labels {
 pub struct ObservationData {
     #[serde(rename = "ref")]
     pub display_ref: String,
+    /// The short label the app's pin shows (`refs::marker`); the crop's pin carries it too.
+    pub marker: String,
     pub plan_title: String,
     pub description: String,
     pub crop: Option<CropData>,
@@ -244,6 +246,7 @@ pub fn prepare(data_dir: &Path, src: ReportSource) -> Result<ReportInput> {
 
         out.push(ObservationData {
             display_ref: obs.display_ref.clone(),
+            marker: obs.marker.clone(),
             plan_title,
             description: obs.description.clone(),
             crop,

@@ -24,11 +24,20 @@ Offline-first app for real-estate site visits: load PDF plans, drop numbered pin
 - **Plan revisions:** a new revision replaces the plan in place, pins carry over, no history kept. Backlog, after v0.2.
 - **Devices:** Xiaomi 15 (Android 15, HyperOS) + Windows laptop. **No tablet for now.** Acceptance stays on the P30 Pro with scaled time targets (D-014). HyperOS kills background apps aggressively → tile generation must stay resumable.
 
+### Client answers (2026-10-13) — report layout (applied in Sprint 5b, D-025)
+1. **No page per observation:** a continuous list, several observations per page, with a clear separation between them. An observation's header + ID + plan row (crop and overview) stay together; the description and each photo with its caption are never split; photos may flow to the next page.
+2. **Photos one below the other** (single column), not a two-column grid.
+3. **Max 3 photos per observation**, enforced in the app (core validation on create and edit; the sheet stops offering the camera/picker at 3).
+4. **Pin in the plan crop shows the marker and the observation number:** the same short label as the app pin (`3`, or `PC-01` per fraction).
+5. **Header:** the plan title next to the project name.
+6. Unchanged and confirmed: captions `n. dd.mm.yyyy hh:mm`, newest first by creation date, cover contents, crop ≈ 20 % of the sheet.
+- **Still open:** whether the crop needs more context than ≈ 20 % (the reply was only "sim", ambiguous); the Aproplan sample pages (not sent yet); the printed sample for the Sprint 6 size options (D-024).
+
 ## 1. Concept
 - **Project** (a building/site) → contains **Plans** (one PDF each) and **Visits** (dated sessions).
 - During a **Visit**, the user opens a plan, taps a spot → creates an **Observation**: auto ref number, pin, photo(s) with annotation, description.
 - **Follow-up visit**: starts with all still-open observations from previous visits; user marks each resolved or keeps it open, and adds new ones.
-- End of visit → **Report** PDF: cover page + one block per observation (ref, zoomed plan crop with pin, overview plan with red box, photo(s) with timestamp, description, open/resolved).
+- End of visit → **Report** PDF: cover page + one block per observation in a continuous list (ref, zoomed plan crop with the labelled pin, overview plan with red box, description, photos with timestamp, open/resolved).
 
 ## 2. Requirements
 
@@ -37,7 +46,7 @@ Offline-first app for real-estate site visits: load PDF plans, drop numbered pin
 - M2 Import PDF plan (one page per file, A3/A1); plan title.
 - M3 Smooth pan/zoom on A1 plans on Android phone and tablet.
 - M4 Add-pin mode ("+", then tap) places a pin; drag to adjust; stored as normalised x/y (0–1).
-- M5 Observation: ref (per-project format: project code + fraction + sequence, §0 2026-10-01, D-020; exact format pending — a settings default), description, ≥1 photo (camera or gallery), timestamp.
+- M5 Observation: ref (per-project format: project code + fraction + sequence, §0 2026-10-01, D-020; exact format pending — a settings default), description, 1–3 photos (camera or gallery; §0 2026-10-13, D-025), timestamp.
 - M6 Photo annotation: ellipse, arrow, freehand; red; saved non-destructively (original kept).
 - M7 Observation list; tap to jump to pin.
 - M8 Visits + follow-ups: carry over open observations; mark resolved (with date).
@@ -117,7 +126,8 @@ Note: observations belong to the project (not one visit) so they can carry over;
   - Result: 50 observations × 3 photos → 105 pages, 3.4 MB on the A4 fixture (the client's A1 plan: 17.2 MB, 14.0 MB with greyscale crops — D-024 size section); Mac release harness 3.9 s, max RSS 390 MB; Android 15 emulator (release APK) 15.2 s, peak total PSS 534 MB (limit ≈ 600 MB, D-014); APK 38.4 MB (240 KB under main); the image/codec crates now build at `opt-level = 3` (5× faster photo/snapshot preparation). Memory contingency (chunked compile + lopdf merge) designed, not needed. **Pending on hardware:** time/memory on the P30 and the client's phone; `jiff` on a vendor ROM's tzdata.
   - Client 2026-10-01: open observations newest first; no logo; attendees only if filled; 20–50 pages typical. Reference block: the client's `mockup.jpg` (header with project name and ID, crop with pin beside the overview with a red box, description, photos captioned "1. dd.mm.yyyy hh:mm", page x/y).
   - Scope: (1) snapshots in Rust from the tile pyramid — square crop of ~20 % of the sheet's long side around the pin (clamped inside the plan), overview from the 1024 level, both PNG; pin and box drawn as vectors by Typst; (2) Typst report: provisional cover (name, address, date; no logo) + one block per open observation, newest first, whole project (visits in Sprint 7), EN/PT strings from `i18n/*.json`, `lang: "pt"` hyphenation, language chosen at generation time (default: UI language); (3) annotation hook `annotate::flatten` (identity until Sprint 4) with a test — every photo passes through it, then is downscaled to 800 px for the PDF; (4) D-004 follow-up closed (D-024: `typst` itself pulls `typst-html`/`typst-svg`, so `typst-as-lib` stays; APK size logged); (5) temporary "Generate report" action writing `reports/<project>-<stamp>.pdf`; render time and peak memory at 50 observations × 3 photos on the Mac and the emulator (limit ≈ 600 MB total, as tile generation; chunked compile + merge if exceeded). The Sprint 0 report spike leaves the app (crate kept).
-  - Open for the client (relayed offline): one observation per page; photo grid for several photos; crop size and pin label; cover contents; plan title/fraction in the block header; date format; "newest first" by creation time; placeholder when a plan has no tile cache on this device.
+  - Open for the client (relayed offline): ~~one observation per page; photo grid for several photos; pin label; cover contents; plan title in the block header; date format; "newest first" by creation time~~ — answered 2026-10-13 (§0, Sprint 5b, D-025). **Still open:** crop size/context (the reply was only "sim"); the Aproplan sample pages (not sent); fraction in the block header; placeholder when a plan has no tile cache on this device.
+- **Sprint 5b** ✅ (2026-10-13, D-025): the client's layout answers applied — continuous list (head + ID + plan row kept together, description and each captioned photo unsplit, photos one below the other), the app's marker label on the crop's pin (kept inside the crop at the edges), plan title in the header; 1–3 photos per observation enforced in the core and the sheet (`photo_limit`). Emulator, 51 × 3 on the A1 plan: **103 → 69 pages**, 14,682,417 → 14,665,723 B, 105 s in the debug build. Photo sizes unchanged (our default); one observation per page would need ≈ 60 mm photos — a Sprint 6 / client question.
   - Phone-only later: time/memory on hardware (P30 ×2 time, memory unscaled); `jiff` on the real device's tzdata; partial pyramid after a HyperOS kill; share/open on the phone (Sprint 6).
   - Backlog from the Sprint 5 code review (PR #4): (a) parallel photo/snapshot preparation (`std::thread::scope` over the photos in `prepare`) **only if the P30 time target fails** — photos are ~55 % of the report time, but parallel decoding raises the peak memory D-024 has the least margin on; (b) the Dev → Seed screen's plan list can race across quick project switches (`SeedScreen.svelte`, `$effect` without cancellation; debug builds only).
 - **Sprint 6**: share/save on Android and Windows; performance at 50 observations. Report size (D-024): crops are greyscale since the Sprint 5 review; 16 grey levels and 640 px / q75 photos are deferred here pending a printed sample for the client.

@@ -13,6 +13,18 @@ use crate::refs::{self, Scope, Template};
 use crate::repo::{fractions, photos, plans, projects};
 use crate::{clock, ids, CoreError, Result};
 
+/// Photos per observation (client 2026-10-13, D-025); checked on create and edit, before anything
+/// is touched. The observation sheet stops offering the camera/picker at this count.
+pub const MAX_PHOTOS: usize = 3;
+
+fn check_photo_count(count: usize) -> Result<()> {
+    match count {
+        0 => Err(CoreError::PhotoRequired),
+        n if n > MAX_PHOTOS => Err(CoreError::PhotoLimit { max: MAX_PHOTOS }),
+        _ => Ok(()),
+    }
+}
+
 fn check_pos(x: f64, y: f64) -> Result<()> {
     let ok = |v: f64| v.is_finite() && (0.0..=1.0).contains(&v);
     if ok(x) && ok(y) {
@@ -134,8 +146,8 @@ fn assign_ref(tx: &Connection, project: &Project, fraction: &str, now: &str) -> 
 /// Save of the observation sheet: in one transaction add the fraction if it is new
 /// ([`fractions::ensure`], whose canonical code is what gets stored), assign the ref
 /// ([`assign_ref`]), insert the observation and move its staged photos in
-/// ([`photos::attach`]); at least one photo is required. On any error nothing changes (staged
-/// files are back in `tmp/`).
+/// ([`photos::attach`]); one to [`MAX_PHOTOS`] photos are required. On any error nothing changes
+/// (staged files are back in `tmp/`).
 #[allow(clippy::too_many_arguments)]
 pub fn create_observation(
     conn: &Connection,
@@ -147,9 +159,7 @@ pub fn create_observation(
     description: &str,
     new_photos: &[PhotoInput],
 ) -> Result<Observation> {
-    if new_photos.is_empty() {
-        return Err(CoreError::PhotoRequired);
-    }
+    check_photo_count(new_photos.len())?;
     check_pos(x, y)?;
     let fraction = refs::validate_code(fraction)?;
     let plan = plans::get(conn, plan_id)?;
@@ -176,8 +186,9 @@ pub fn create_observation(
 }
 
 /// Save of the sheet in edit mode: the description and the photos (add the staged ones, remove
-/// the listed ids). The fraction, and so the ref, never change here. The observation must keep at
-/// least one photo, which an observation migrated from Sprint 3a (none) satisfies by adding one.
+/// the listed ids). The fraction, and so the ref, never change here. The observation must end up
+/// with one to [`MAX_PHOTOS`] photos; an observation migrated from Sprint 3a (none) satisfies the
+/// minimum by adding one.
 /// One transaction: on any error the rows are unchanged and staged files are back in `tmp/`;
 /// removed files are deleted after the commit (row first, D-010).
 pub fn update_observation(
@@ -199,9 +210,7 @@ pub fn update_observation(
             removed.push(p);
         }
     }
-    if existing.len() - removed.len() + new_photos.len() == 0 {
-        return Err(CoreError::PhotoRequired);
-    }
+    check_photo_count(existing.len() - removed.len() + new_photos.len())?;
     let now = clock::now_iso();
     let tx = conn.unchecked_transaction()?;
     tx.execute(

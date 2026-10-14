@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Phase } from "./photos.ts";
-import { acquirePhoto, addStaged, canSave, count, noPhotos, removeExisting, removeStaged, shown, toSave, watchReturn, withExisting } from "./photos.ts";
+import { acquirePhoto, addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, shown, startAdd, toSave, watchReturn, withExisting } from "./photos.ts";
 
 const stored = (id: string) => ({ id, observationId: "o", path: `/data/projects/p/photos/${id}.jpg`, takenAt: "2026-10-05T12:00:00.000Z" });
 const staged = (token: string) => ({ token, path: `/data/tmp/${token}.jpg`, takenAt: "2026-10-06T08:00:00.000Z" });
@@ -45,6 +45,21 @@ test("removing the last stored photo needs a replacement", () => {
   const swapped = addStaged(s, staged("t1"));
   assert.equal(canSave(swapped, false), true);
   assert.deepEqual(toSave(swapped), { photos: [{ token: "t1", takenAt: "2026-10-06T08:00:00.000Z" }], removed: ["a"] });
+});
+
+test("the camera and the picker are offered below the limit and not at it", () => {
+  assert.equal(MAX_PHOTOS, 3);
+  let s = withExisting(noPhotos, [stored("a"), stored("b")]);
+  assert.equal(canAdd(s, false), true);
+  assert.equal(canAdd(s, true), false, "not while a photo is being processed");
+  s = addStaged(s, staged("t1"));
+  assert.equal(canAdd(s, false), false, "three photos");
+  assert.equal(canSave(s, false), true);
+  // Removing a stored photo makes room again; a restored draft over the limit cannot be saved.
+  assert.equal(canAdd(removeExisting(s, "a"), false), true);
+  const over = addStaged(s, staged("t2"));
+  assert.equal(canAdd(over, false), false);
+  assert.equal(canSave(over, false), false);
 });
 
 const track = () => {
@@ -200,4 +215,39 @@ test("a return watcher that fails to start still ends idle, with the error", asy
   );
   assert.deepEqual(r, { staged: null, error: boom });
   assert.deepEqual(phases, ["picking", "idle"], "never stuck on 'picking'");
+});
+
+test("a double tap while the draft is being stored stages one photo, not two over the limit", async () => {
+  let s = withExisting(noPhotos, [stored("a"), stored("b")]);
+  let phase: Phase = "idle";
+  let picked = 0;
+  let release = () => {};
+  const storing = new Promise<void>((r) => (release = r));
+  const tap = () =>
+    startAdd(
+      () => canAdd(s, phase !== "idle"),
+      () => storing,
+      { getPath: async () => `/p${++picked}.jpg`, stage: async (p) => staged(p) },
+      (p) => (phase = p),
+    );
+  const first = tap();
+  const second = tap(); // before the draft is stored
+  release();
+  const [r1, r2] = await Promise.all([first, second]);
+  assert.equal(r2, null, "the second tap is refused");
+  assert.equal(picked, 1, "the camera/picker opened once");
+  s = addStaged(s, r1!.staged!);
+  assert.equal(count(s), MAX_PHOTOS);
+  assert.equal(phase, "idle");
+  assert.equal(await tap(), null, "at the limit");
+});
+
+test("not storing the draft does not stop the photo, and a refused tap stores nothing", async () => {
+  const { phases, onPhase } = track();
+  const r = await startAdd(() => true, async () => { throw new Error("disk full"); }, { getPath: async () => "/p.jpg", stage: async (p) => staged(p) }, onPhase);
+  assert.equal(r?.staged?.token, "/p.jpg");
+  assert.equal(phases.at(-1), "idle");
+  let stores = 0;
+  assert.equal(await startAdd(() => false, () => void stores++, { getPath: async () => "/p.jpg", stage: async (p) => staged(p) }, onPhase), null);
+  assert.equal(stores, 0);
 });

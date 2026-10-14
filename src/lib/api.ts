@@ -176,10 +176,10 @@ export const api = {
   getPlan: (id: string) => invoke<Plan>("get_plan", { id }),
   listPins: (planId: string) => invoke<Observation[]>("list_pins", { planId }),
   /** Save of the observation sheet: adds the fraction if new and takes the next number. */
-  /** At least one photo is required (`photo_required`). */
+  /** One to three photos are required (`photo_required` / `photo_limit`, D-025). */
   createObservation: (planId: string, x: number, y: number, fraction: string, description: string, photos: PhotoInput[]) =>
     invoke<Observation>("create_observation", { planId, x, y, fraction, description, photos }),
-  /** Edit mode: description and photos only (fraction and ref are fixed). At least one photo must remain. */
+  /** Edit mode: description and photos only (fraction and ref are fixed). One to three photos must remain. */
   updateObservation: (id: string, description: string, photos: PhotoInput[], removePhotoIds: string[]) =>
     invoke<Observation>("update_observation", { id, description, photos, removePhotoIds }),
   /** `source`: absolute path (Android plugin cache copy, Windows picker) or content:// URI. `utcOffsetMin`: minutes east of UTC. */

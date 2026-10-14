@@ -1,7 +1,10 @@
 // Photos of the observation sheet as pure state. `existing` are stored photos (edit mode),
 // `staged` are processed files waiting for Save, `removed` are stored photos marked for removal.
-// The save takes the staged ones and the removed ids; at least one photo must remain.
+// The save takes the staged ones and the removed ids; one to MAX_PHOTOS photos must remain.
 import type { Photo, PhotoInput, StagedPhoto } from "../api";
+
+/** Photos per observation (client 2026-10-13); the core enforces the same number (`photo_limit`). */
+export const MAX_PHOTOS = 3;
 
 export interface PhotoSet {
   existing: Photo[];
@@ -44,8 +47,11 @@ export function shown(s: PhotoSet): PhotoItem[] {
 
 export const count = (s: PhotoSet): number => shown(s).length;
 
-/** Save is allowed with at least one photo and nothing being processed. */
-export const canSave = (s: PhotoSet, busy: boolean): boolean => !busy && count(s) >= 1;
+/** Save is allowed with one to MAX_PHOTOS photos and nothing being processed. */
+export const canSave = (s: PhotoSet, busy: boolean): boolean => !busy && count(s) >= 1 && count(s) <= MAX_PHOTOS;
+
+/** The camera/picker is offered below MAX_PHOTOS photos and while nothing is being processed. */
+export const canAdd = (s: PhotoSet, busy: boolean): boolean => !busy && count(s) < MAX_PHOTOS;
 
 export const toSave = (s: PhotoSet): { photos: PhotoInput[]; removed: string[] } => ({
   photos: s.staged.map((p) => ({ token: p.token, takenAt: p.takenAt })),
@@ -102,6 +108,28 @@ export interface PhotoSource {
   stage: (path: string) => Promise<StagedPhoto>;
   /** Optional: when control came back to the app from the camera/picker. */
   watchReturn?: () => ReturnWatch;
+}
+
+/**
+ * A tap on Camera/Gallery. Refused (`null`) unless `allowed()`; otherwise the phase is "picking"
+ * before anything is awaited, so a second tap while the draft is being stored finds the sheet busy
+ * and cannot stage a photo over the limit. Then the input is stored (`store`; the camera may be
+ * the last thing this process does, and a failure here must not stop the photo) and the photo added.
+ */
+export async function startAdd(
+  allowed: () => boolean,
+  store: () => void | Promise<void>,
+  source: PhotoSource,
+  onPhase: (p: Phase) => void,
+): Promise<{ staged: StagedPhoto | null; error: unknown } | null> {
+  if (!allowed()) return null;
+  onPhase("picking");
+  try {
+    await store();
+  } catch {
+    // not storing the draft must not stop the photo
+  }
+  return acquirePhoto(source, onPhase);
 }
 
 /**

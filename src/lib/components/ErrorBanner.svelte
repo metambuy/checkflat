@@ -14,6 +14,7 @@
       case "fraction_in_use": return t("error.fraction_in_use");
       case "fraction_required": return t("error.fraction_required");
       case "photo_required": return t("error.photo_required");
+      case "photo_limit": return t("error.photo_limit", { count: e.count ?? "?" });
       case "unreadable_image": return t("error.unreadable_image");
       case "image_unsupported": return t("error.image_unsupported");
       case "report": return t("error.report", { message: e.message });
