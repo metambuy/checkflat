@@ -154,6 +154,55 @@ fn long_blocks_flow_over_pages() {
     assert!(pages >= 7, "the long description spreads over pages instead of being clipped: {pages}");
 }
 
+/// The text of each page of a rendered report, as lopdf extracts it.
+fn page_texts(pdf: &[u8]) -> Vec<String> {
+    let doc = lopdf::Document::load_mem(pdf).unwrap();
+    doc.get_pages().keys().map(|&n| doc.extract_text(&[n]).unwrap()).collect()
+}
+
+/// An observation without photos (all its files gone) gets no "Images:" label, so none sticks
+/// to the next observation's head (D-025).
+#[test]
+fn no_images_label_without_photos() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = common::open(data);
+    let pid = common::project(&conn, "Labels", "");
+    let plan = common::plan(&conn, data, &pid, "P", common::A4);
+    common::observation(&conn, data, &plan, 0.4, 0.4, "with photo", &[common::photo_seeded(data, 100, 100, "2026-01-01T00:00:00.000Z", 1)]);
+    let id = common::observation(&conn, data, &plan, 0.6, 0.6, "without photo", &[common::photo_seeded(data, 100, 100, "2026-01-01T01:00:00.000Z", 2)]);
+    for p in checkflat_core::repo::photos::list_for_observation(&conn, &id).unwrap() {
+        std::fs::remove_file(p.file_path.resolve(data)).unwrap();
+    }
+    let input = prepare(data, collect(&conn, data, &pid, Lang::En, "UTC", 0).unwrap()).unwrap();
+    // Newest first: the photo-less observation comes first, directly above the other one.
+    let obs = &input.data.observations;
+    assert_eq!((obs[0].description.as_str(), obs[0].photos.len(), obs[1].photos.len()), ("without photo", 0, 1));
+    let text = page_texts(&render(&input).unwrap().pdf).concat();
+    assert_eq!(text.matches("Images").count(), 1, "one label, for the observation with a photo: {text}");
+    let (label, second) = (text.find("Images").unwrap(), text.find("with photo").unwrap());
+    assert!(label > second, "the label follows the second observation's description: {text}");
+}
+
+/// Line breaks and blank lines in a description stay: the zeroed paragraph spacing of the list
+/// does not run the lines together.
+#[test]
+fn description_keeps_its_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = common::open(data);
+    let pid = common::project(&conn, "Lines", "");
+    let plan = common::plan(&conn, data, &pid, "P", common::A4);
+    let description = "Fissura na parede.\nManchas de humidade.\n\nRecomenda-se reparar.";
+    common::observation(&conn, data, &plan, 0.5, 0.5, description, &[common::photo(data, 100, 100, "2026-01-01T00:00:00.000Z")]);
+    let input = prepare(data, collect(&conn, data, &pid, Lang::En, "UTC", 0).unwrap()).unwrap();
+    let text = page_texts(&render(&input).unwrap().pdf).concat();
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    for line in ["Fissura na parede.", "Manchas de humidade.", "Recomenda-se reparar."] {
+        assert!(lines.contains(&line), "{line:?} is a line of its own: {lines:?}");
+    }
+}
+
 /// The Sprint 5 load case (D-024): 50 observations × 3 photos on an A1 + an A4 plan, both with
 /// a full synthetic pyramid.
 fn fixture_50(data: &Path) -> (Connection, String) {

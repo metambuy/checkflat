@@ -13,7 +13,7 @@
   import { livePreview } from "../livePreview";
   import { capturePath, pickPath, stagePath } from "../photoSource";
   import { isAndroid } from "../platform";
-  import { acquirePhoto, addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, shown, toSave, watchReturn, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
+  import { addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, shown, startAdd, toSave, watchReturn, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
   import { devlog } from "../devlog";
   import type { SheetState } from "../sheet/draft";
   import ErrorBanner from "../components/ErrorBanner.svelte";
@@ -53,6 +53,10 @@
   let photos = $state<PhotoSet>(untrack(() => (initial ? { existing: [], staged: initial.staged, removed: initial.removed } : noPhotos)));
   let phase = $state<Phase>("idle");
   const busy = $derived(phase !== "idle");
+  // Edit mode: the limit counts the stored photos, so the camera and the picker wait until they
+  // are listed, and stay off if listing fails (the error is shown).
+  let loaded = $state(untrack(() => observation === null));
+  const blocked = $derived(busy || !loaded);
   let photoError = $state<AppError | null>(null);
   let camera = $state(false);
   let preview = $state<string | null>(null);
@@ -89,7 +93,10 @@
     if (observation) {
       void api
         .listPhotos(observation.id)
-        .then((p) => (photos = withExisting(photos, p)))
+        .then((p) => {
+          photos = withExisting(photos, p);
+          loaded = true;
+        })
         .catch((e) => (photoError = asAppError(e)));
     } else {
       void api
@@ -108,23 +115,19 @@
   });
 
   async function add(getPath: () => Promise<string | null>) {
-    if (saving || !canAdd(photos, busy)) return;
-    photoError = null;
-    // The camera may be the last thing this process does: store the input first.
-    try {
-      await onstate?.(snapshot(), true);
-    } catch {
-      // not storing the draft must not stop the photo
-    }
     // "Preparing photo…" from the moment the camera/picker hands control back until the file is
     // processed (HEIC conversion, cloud download); every way out ends idle.
-    const r = await acquirePhoto(
+    const r = await startAdd(
+      () => !saving && canAdd(photos, blocked),
+      () => onstate?.(snapshot(), true),
       { getPath, stage: stagePath, watchReturn: () => watchReturn(window, document) },
       (p) => {
+        if (p === "picking") photoError = null;
         phase = p;
         devlog(`photo: ${p}`);
       },
     );
+    if (!r) return;
     if (r.staged) photos = addStaged(photos, r.staged);
     if (r.error) photoError = asAppError(r.error);
   }
@@ -194,9 +197,9 @@
       </ul>
       <div class="add-row">
         {#if camera}
-          <button type="button" onclick={() => add(capturePath)} disabled={saving || !canAdd(photos, busy)}>{t("photos.camera")}</button>
+          <button type="button" onclick={() => add(capturePath)} disabled={saving || !canAdd(photos, blocked)}>{t("photos.camera")}</button>
         {/if}
-        <button type="button" onclick={() => add(pickPath)} disabled={saving || !canAdd(photos, busy)}>{t("photos.gallery")}</button>
+        <button type="button" onclick={() => add(pickPath)} disabled={saving || !canAdd(photos, blocked)}>{t("photos.gallery")}</button>
         {#if phase === "preparing"}<span class="muted" aria-live="polite">{t("photos.preparing")}</span>{/if}
       </div>
       {#if !busy && count(photos) === 0}

@@ -111,6 +111,28 @@ export interface PhotoSource {
 }
 
 /**
+ * A tap on Camera/Gallery. Refused (`null`) unless `allowed()`; otherwise the phase is "picking"
+ * before anything is awaited, so a second tap while the draft is being stored finds the sheet busy
+ * and cannot stage a photo over the limit. Then the input is stored (`store`; the camera may be
+ * the last thing this process does, and a failure here must not stop the photo) and the photo added.
+ */
+export async function startAdd(
+  allowed: () => boolean,
+  store: () => void | Promise<void>,
+  source: PhotoSource,
+  onPhase: (p: Phase) => void,
+): Promise<{ staged: StagedPhoto | null; error: unknown } | null> {
+  if (!allowed()) return null;
+  onPhase("picking");
+  try {
+    await store();
+  } catch {
+    // not storing the draft must not stop the photo
+  }
+  return acquirePhoto(source, onPhase);
+}
+
+/**
  * One add of a photo. "preparing" starts when control comes back (the signal from `watchReturn`)
  * or, at the latest, when a path arrives, and lasts until the photo is processed; every way out
  * (cancelled, failed, done) ends in "idle", so the sheet can never be left waiting. A cancel is

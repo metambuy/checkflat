@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Phase } from "./photos.ts";
-import { acquirePhoto, addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, shown, toSave, watchReturn, withExisting } from "./photos.ts";
+import { acquirePhoto, addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, shown, startAdd, toSave, watchReturn, withExisting } from "./photos.ts";
 
 const stored = (id: string) => ({ id, observationId: "o", path: `/data/projects/p/photos/${id}.jpg`, takenAt: "2026-10-05T12:00:00.000Z" });
 const staged = (token: string) => ({ token, path: `/data/tmp/${token}.jpg`, takenAt: "2026-10-06T08:00:00.000Z" });
@@ -215,4 +215,39 @@ test("a return watcher that fails to start still ends idle, with the error", asy
   );
   assert.deepEqual(r, { staged: null, error: boom });
   assert.deepEqual(phases, ["picking", "idle"], "never stuck on 'picking'");
+});
+
+test("a double tap while the draft is being stored stages one photo, not two over the limit", async () => {
+  let s = withExisting(noPhotos, [stored("a"), stored("b")]);
+  let phase: Phase = "idle";
+  let picked = 0;
+  let release = () => {};
+  const storing = new Promise<void>((r) => (release = r));
+  const tap = () =>
+    startAdd(
+      () => canAdd(s, phase !== "idle"),
+      () => storing,
+      { getPath: async () => `/p${++picked}.jpg`, stage: async (p) => staged(p) },
+      (p) => (phase = p),
+    );
+  const first = tap();
+  const second = tap(); // before the draft is stored
+  release();
+  const [r1, r2] = await Promise.all([first, second]);
+  assert.equal(r2, null, "the second tap is refused");
+  assert.equal(picked, 1, "the camera/picker opened once");
+  s = addStaged(s, r1!.staged!);
+  assert.equal(count(s), MAX_PHOTOS);
+  assert.equal(phase, "idle");
+  assert.equal(await tap(), null, "at the limit");
+});
+
+test("not storing the draft does not stop the photo, and a refused tap stores nothing", async () => {
+  const { phases, onPhase } = track();
+  const r = await startAdd(() => true, async () => { throw new Error("disk full"); }, { getPath: async () => "/p.jpg", stage: async (p) => staged(p) }, onPhase);
+  assert.equal(r?.staged?.token, "/p.jpg");
+  assert.equal(phases.at(-1), "idle");
+  let stores = 0;
+  assert.equal(await startAdd(() => false, () => void stores++, { getPath: async () => "/p.jpg", stage: async (p) => staged(p) }, onPhase), null);
+  assert.equal(stores, 0);
 });

@@ -140,17 +140,20 @@
       #v(1mm)
       #text(hyphenate: true)[#o.description]
     ]
-    #v(3mm)
-    // The label stays with the first photo.
-    #block(sticky: true)[
-      #rule
+    // The label stays with the first photo; without photos (all files missing, or migrated from
+    // Sprint 3a) there is none, or it would stick to the next observation.
+    #if o.photos.len() > 0 [
+      #v(3mm)
+      #block(sticky: true)[
+        #rule
+        #v(2mm)
+        #label(L.images)
+      ]
       #v(2mm)
-      #label(L.images)
+      #for (j, p) in o.photos.enumerate() {
+        if j > 0 { v(4mm) }
+        photo(p)
+      }
     ]
-    #v(2mm)
-    #for (j, p) in o.photos.enumerate() {
-      if j > 0 { v(4mm) }
-      photo(p)
-    }
   ]
 ]
