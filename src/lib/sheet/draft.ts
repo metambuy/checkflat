@@ -3,6 +3,7 @@
 // the sheet is open, so a photo taken while the app was killed behind the camera lands in the
 // sheet it was meant for. Written on every change (debounced) and immediately before the camera or
 // picker opens; cleared whenever the sheet closes (save, cancel, Back, leaving the screen).
+import { parseAnnotation, type Annotation } from "../annotate/model.ts";
 import type { StagedPhoto } from "../api";
 
 export const DRAFT_KEY = "sheet_draft";
@@ -12,10 +13,12 @@ export const MAX_AGE_MS = 24 * 3600 * 1000;
 export interface SheetState {
   fraction: string;
   description: string;
-  /** Photos already processed into tmp/ and not saved yet. */
+  /** Photos already processed into tmp/ and not saved yet (with the shapes drawn on them). */
   staged: StagedPhoto[];
   /** Stored photos (edit mode) marked for removal. */
   removed: string[];
+  /** Stored photos (edit mode) whose shapes were changed, by photo id (null = cleared). */
+  annotations: Record<string, Annotation | null>;
 }
 
 export interface SheetDraft extends SheetState {
@@ -55,10 +58,17 @@ export function parseDraft(raw: string | null | undefined, now: number): SheetDr
   if (d.mode === "edit" && observationId === null) return null;
   if (!Array.isArray(d.removed) || !d.removed.every(isStr)) return null;
   if (!Array.isArray(d.staged)) return null;
+  // Annotations (Sprint 4) are optional in the draft — an older draft has none — and an invalid
+  // one drops the shapes, never the draft: a photo is worth more than what was drawn on it.
   const staged: StagedPhoto[] = [];
   for (const p of d.staged) {
     if (typeof p !== "object" || p === null || !isStr(p.token) || !isStr(p.path) || !isStr(p.takenAt)) return null;
-    staged.push({ token: p.token, path: p.path, takenAt: p.takenAt });
+    staged.push({ token: p.token, path: p.path, takenAt: p.takenAt, annotation: parseAnnotation(p.annotation) });
+  }
+  const annotations: Record<string, Annotation | null> = {};
+  if (d.annotations !== undefined) {
+    if (typeof d.annotations !== "object" || d.annotations === null || Array.isArray(d.annotations)) return null;
+    for (const [id, a] of Object.entries(d.annotations)) annotations[id] = parseAnnotation(a);
   }
   return {
     v: 1,
@@ -72,6 +82,7 @@ export function parseDraft(raw: string | null | undefined, now: number): SheetDr
     description: d.description,
     staged,
     removed: d.removed as string[],
+    annotations,
     savedAt: d.savedAt,
   };
 }

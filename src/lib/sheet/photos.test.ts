@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Phase } from "./photos.ts";
-import { acquirePhoto, addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, shown, startAdd, toSave, watchReturn, withExisting } from "./photos.ts";
+import { acquirePhoto, addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, setAnnotation, shown, startAdd, toSave, watchReturn, withExisting } from "./photos.ts";
+import type { Annotation } from "../annotate/model.ts";
 
-const stored = (id: string) => ({ id, observationId: "o", path: `/data/projects/p/photos/${id}.jpg`, takenAt: "2026-10-05T12:00:00.000Z" });
-const staged = (token: string) => ({ token, path: `/data/tmp/${token}.jpg`, takenAt: "2026-10-06T08:00:00.000Z" });
+const stored = (id: string, annotation: Annotation | null = null) => ({ id, observationId: "o", path: `/data/projects/p/photos/${id}.jpg`, takenAt: "2026-10-05T12:00:00.000Z", annotation });
+const staged = (token: string) => ({ token, path: `/data/tmp/${token}.jpg`, takenAt: "2026-10-06T08:00:00.000Z", annotation: null });
+const ellipse: Annotation = { v: 1, shapes: [{ t: "ellipse", cx: 0.5, cy: 0.5, rx: 0.2, ry: 0.1 }] };
+const arrow: Annotation = { v: 1, shapes: [{ t: "arrow", x1: 0.1, y1: 0.1, x2: 0.9, y2: 0.9 }] };
 
 test("a new observation needs one staged photo", () => {
   assert.equal(canSave(noPhotos, false), false);
@@ -30,7 +33,7 @@ test("removing a stored photo hides it and is sent to the save; removing twice o
   let s = withExisting(noPhotos, [stored("a"), stored("b")]);
   s = removeExisting(removeExisting(removeExisting(s, "a"), "a"), "zzz");
   assert.deepEqual(shown(s).map((p) => p.key), ["b"]);
-  assert.deepEqual(toSave(s), { photos: [], removed: ["a"] });
+  assert.deepEqual(toSave(s), { photos: [], removed: ["a"], annotations: [] });
 });
 
 test("an observation migrated without photos cannot be saved until one is added", () => {
@@ -44,7 +47,30 @@ test("removing the last stored photo needs a replacement", () => {
   assert.equal(canSave(s, false), false);
   const swapped = addStaged(s, staged("t1"));
   assert.equal(canSave(swapped, false), true);
-  assert.deepEqual(toSave(swapped), { photos: [{ token: "t1", takenAt: "2026-10-06T08:00:00.000Z" }], removed: ["a"] });
+  assert.deepEqual(toSave(swapped), { photos: [{ token: "t1", takenAt: "2026-10-06T08:00:00.000Z", annotation: null }], removed: ["a"], annotations: [] });
+});
+
+test("annotations: a staged photo keeps its own, a stored one gets a pending edit, both reach the save", () => {
+  let s = withExisting(noPhotos, [stored("a", ellipse), stored("b")]);
+  s = addStaged(s, staged("t1"));
+  assert.deepEqual(shown(s).map((p) => p.annotation), [ellipse, null, null], "stored shapes show as they are");
+  s = setAnnotation(s, "t1", true, arrow);
+  s = setAnnotation(s, "b", false, ellipse);
+  s = setAnnotation(s, "a", false, null); // cleared in this sheet
+  s = setAnnotation(s, "zzz", false, arrow); // unknown id: ignored
+  assert.deepEqual(shown(s).map((p) => p.annotation), [null, ellipse, arrow]);
+  assert.deepEqual(toSave(s), {
+    photos: [{ token: "t1", takenAt: "2026-10-06T08:00:00.000Z", annotation: arrow }],
+    removed: [],
+    annotations: [{ photoId: "b", annotation: ellipse }, { photoId: "a", annotation: null }],
+  });
+  // Removing a stored photo drops its pending edit from the save; a restored draft's edits of
+  // photos that no longer exist are dropped too.
+  const removed = removeExisting(s, "b");
+  assert.deepEqual(toSave(removed).annotations, [{ photoId: "a", annotation: null }]);
+  const restored = withExisting({ ...noPhotos, annotations: { gone: arrow, a: ellipse } }, [stored("a")]);
+  assert.deepEqual(restored.annotations, { a: ellipse });
+  assert.deepEqual(shown(restored)[0].annotation, ellipse);
 });
 
 test("the camera and the picker are offered below the limit and not at it", () => {

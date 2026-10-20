@@ -1,7 +1,10 @@
 // Photos of the observation sheet as pure state. `existing` are stored photos (edit mode),
-// `staged` are processed files waiting for Save, `removed` are stored photos marked for removal.
-// The save takes the staged ones and the removed ids; one to MAX_PHOTOS photos must remain.
-import type { Photo, PhotoInput, StagedPhoto } from "../api";
+// `staged` are processed files waiting for Save, `removed` are stored photos marked for removal,
+// `annotations` are the shapes drawn on stored photos in this sheet (by photo id; a staged photo
+// carries its own). The save takes the staged ones (with their shapes), the removed ids and the
+// changed annotations; one to MAX_PHOTOS photos must remain.
+import type { Annotation } from "../annotate/model";
+import type { Photo, PhotoAnnotation, PhotoInput, StagedPhoto } from "../api";
 
 /** Photos per observation (client 2026-10-13); the core enforces the same number (`photo_limit`). */
 export const MAX_PHOTOS = 3;
@@ -10,6 +13,8 @@ export interface PhotoSet {
   existing: Photo[];
   staged: StagedPhoto[];
   removed: string[];
+  /** Edits of stored photos' annotations, not saved yet (null = cleared). */
+  annotations: Record<string, Annotation | null>;
 }
 
 export interface PhotoItem {
@@ -18,15 +23,18 @@ export interface PhotoItem {
   /** Absolute path for convertFileSrc. */
   path: string;
   staged: boolean;
+  /** What the thumbnail shows: the edit if there is one, else what is stored or staged. */
+  annotation: Annotation | null;
 }
 
-export const noPhotos: PhotoSet = { existing: [], staged: [], removed: [] };
+export const noPhotos: PhotoSet = { existing: [], staged: [], removed: [], annotations: {} };
 
-/** Stored photos arrived (edit mode); removals of photos that no longer exist (a restored draft) are dropped. */
+/** Stored photos arrived (edit mode); removals and annotation edits of photos that no longer exist (a restored draft) are dropped. */
 export const withExisting = (s: PhotoSet, existing: Photo[]): PhotoSet => ({
   ...s,
   existing,
   removed: s.removed.filter((id) => existing.some((p) => p.id === id)),
+  annotations: Object.fromEntries(Object.entries(s.annotations).filter(([id]) => existing.some((p) => p.id === id))),
 });
 
 export const addStaged = (s: PhotoSet, p: StagedPhoto): PhotoSet =>
@@ -37,11 +45,20 @@ export const removeStaged = (s: PhotoSet, token: string): PhotoSet => ({ ...s, s
 export const removeExisting = (s: PhotoSet, id: string): PhotoSet =>
   s.existing.some((p) => p.id === id) && !s.removed.includes(id) ? { ...s, removed: [...s.removed, id] } : s;
 
+/** The editor's result for the photo `key`: a staged photo keeps it, a stored one gets a pending edit. */
+export function setAnnotation(s: PhotoSet, key: string, staged: boolean, a: Annotation | null): PhotoSet {
+  if (staged) return { ...s, staged: s.staged.map((p) => (p.token === key ? { ...p, annotation: a } : p)) };
+  if (!s.existing.some((p) => p.id === key)) return s;
+  return { ...s, annotations: { ...s.annotations, [key]: a } };
+}
+
 /** What the sheet shows: the stored photos not marked for removal, then the staged ones, in the order added. */
 export function shown(s: PhotoSet): PhotoItem[] {
   return [
-    ...s.existing.filter((p) => !s.removed.includes(p.id)).map((p) => ({ key: p.id, path: p.path, staged: false })),
-    ...s.staged.map((p) => ({ key: p.token, path: p.path, staged: true })),
+    ...s.existing
+      .filter((p) => !s.removed.includes(p.id))
+      .map((p) => ({ key: p.id, path: p.path, staged: false, annotation: p.id in s.annotations ? s.annotations[p.id] : p.annotation })),
+    ...s.staged.map((p) => ({ key: p.token, path: p.path, staged: true, annotation: p.annotation })),
   ];
 }
 
@@ -53,9 +70,19 @@ export const canSave = (s: PhotoSet, busy: boolean): boolean => !busy && count(s
 /** The camera/picker is offered below MAX_PHOTOS photos and while nothing is being processed. */
 export const canAdd = (s: PhotoSet, busy: boolean): boolean => !busy && count(s) < MAX_PHOTOS;
 
-export const toSave = (s: PhotoSet): { photos: PhotoInput[]; removed: string[] } => ({
-  photos: s.staged.map((p) => ({ token: p.token, takenAt: p.takenAt })),
+export interface SheetPhotos {
+  photos: PhotoInput[];
+  removed: string[];
+  /** Annotation edits of stored photos that are kept. */
+  annotations: PhotoAnnotation[];
+}
+
+export const toSave = (s: PhotoSet): SheetPhotos => ({
+  photos: s.staged.map((p) => ({ token: p.token, takenAt: p.takenAt, annotation: p.annotation })),
   removed: [...s.removed],
+  annotations: Object.entries(s.annotations)
+    .filter(([id]) => !s.removed.includes(id))
+    .map(([photoId, annotation]) => ({ photoId, annotation })),
 });
 
 /**

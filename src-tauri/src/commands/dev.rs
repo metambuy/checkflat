@@ -3,6 +3,7 @@
 //! list in `lib.rs`); the `dev-seed` feature exists for local measurement builds only (D-026).
 use std::io::Cursor;
 
+use checkflat_core::annotation::{Annotation, Shape};
 use checkflat_core::photos::{self, PhotoInput};
 use checkflat_core::refs::Scope;
 use checkflat_core::repo::{fractions, observations, plans, projects};
@@ -37,12 +38,27 @@ fn unique_copy(jpeg: &[u8], n: u32) -> Result<Vec<u8>, CoreError> {
     Ok(out)
 }
 
+/// One ellipse and one arrow, placed by `n` so no two photos share a drawing; every third photo
+/// also gets a short freehand stroke, so the report's flattening exercises all three shapes.
+fn seed_annotation(n: u32) -> Annotation {
+    let k = f64::from(n % 7) / 7.0;
+    let mut shapes = vec![
+        Shape::Ellipse { cx: 0.3 + 0.4 * k, cy: 0.35 + 0.2 * k, rx: 0.12 + 0.05 * k, ry: 0.1 },
+        Shape::Arrow { x1: 0.1 + 0.1 * k, y1: 0.85, x2: 0.3 + 0.4 * k, y2: 0.5 + 0.2 * k },
+    ];
+    if n % 3 == 0 {
+        shapes.push(Shape::Freehand { pts: vec![[0.6, 0.2 + 0.1 * k], [0.7, 0.3], [0.8, 0.2 + 0.1 * k], [0.9, 0.3]] });
+    }
+    Annotation::new(shapes)
+}
+
 /// Creates `count` observations on `plan_id` through the normal save path, three photos each
 /// (copies of photos already in the project, re-staged), pseudo-random positions including
-/// corners, long PT descriptions, and capture times on both sides of the 2026-10-25 DST change.
+/// corners, long PT descriptions, and capture times on both sides of the 2026-10-25 DST change;
+/// with `annotate`, shapes on every photo (the end-of-Sprint-4 re-measure, D-026).
 /// The 50-observation fixture for the report measurements (D-024).
 #[tauri::command]
-pub async fn dev_seed_observations(app: AppHandle, plan_id: String, count: u32) -> AppResult<u32> {
+pub async fn dev_seed_observations(app: AppHandle, plan_id: String, count: u32, annotate: bool) -> AppResult<u32> {
     run_db(app, move |c, dir| {
         let plan = plans::get(c, &plan_id)?;
         let project = projects::get(c, &plan.project_id)?;
@@ -78,7 +94,8 @@ pub async fn dev_seed_observations(app: AppHandle, plan_id: String, count: u32) 
                 .map(|j| {
                     let src = &bytes[((i * 3 + j) as usize) % bytes.len()];
                     let s = photos::stage(dir, Cursor::new(unique_copy(src, i * 3 + j)?), 0)?;
-                    Ok(PhotoInput { token: s.token, taken_at: times[j as usize].to_string(), annotation: None })
+                    let annotation = annotate.then(|| seed_annotation(i * 3 + j));
+                    Ok(PhotoInput { token: s.token, taken_at: times[j as usize].to_string(), annotation })
                 })
                 .collect::<Result<_, CoreError>>()?;
             let text = format!("{} {}", TEXTS[(i as usize) % TEXTS.len()], i + 1);

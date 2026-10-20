@@ -1,5 +1,6 @@
 // Typed wrappers over Tauri commands. Errors are { code, message, pages?, count? } (src-tauri/src/error.rs).
 import { invoke } from "@tauri-apps/api/core";
+import type { Annotation } from "./annotate/model";
 
 export interface AppError {
   code: string;
@@ -89,17 +90,27 @@ export interface Photo {
   path: string;
   /** UTC, RFC 3339. */
   takenAt: string;
+  /** The shapes drawn on it (Sprint 4); null when nothing is drawn. */
+  annotation: Annotation | null;
 }
 /** A processed photo (≤ 1600 px JPEG) waiting for the observation save; `path` is under `$APPDATA/tmp/**`. */
 export interface StagedPhoto {
   token: string;
   path: string;
   takenAt: string;
+  /** Drawn in the sheet before the save; null until then (the backend never sets it). */
+  annotation: Annotation | null;
 }
 /** What the save takes for each new photo. */
 export interface PhotoInput {
   token: string;
   takenAt: string;
+  annotation: Annotation | null;
+}
+/** A stored photo's new annotation (edit mode); null clears it. */
+export interface PhotoAnnotation {
+  photoId: string;
+  annotation: Annotation | null;
 }
 export interface TileLevel {
   /** Long side in px; the level's directory name. */
@@ -179,11 +190,12 @@ export const api = {
   /** One to three photos are required (`photo_required` / `photo_limit`, D-025). */
   createObservation: (planId: string, x: number, y: number, fraction: string, description: string, photos: PhotoInput[]) =>
     invoke<Observation>("create_observation", { planId, x, y, fraction, description, photos }),
-  /** Edit mode: description and photos only (fraction and ref are fixed). One to three photos must remain. */
-  updateObservation: (id: string, description: string, photos: PhotoInput[], removePhotoIds: string[]) =>
-    invoke<Observation>("update_observation", { id, description, photos, removePhotoIds }),
+  /** Edit mode: description, photos and the kept photos' annotations (fraction and ref are fixed). One to three photos must remain. */
+  updateObservation: (id: string, description: string, photos: PhotoInput[], removePhotoIds: string[], annotations: PhotoAnnotation[]) =>
+    invoke<Observation>("update_observation", { id, description, photos, removePhotoIds, annotations }),
   /** `source`: absolute path (Android plugin cache copy, Windows picker) or content:// URI. `utcOffsetMin`: minutes east of UTC. */
-  stagePhoto: (source: string, utcOffsetMin: number) => invoke<StagedPhoto>("stage_photo", { source, utcOffsetMin }),
+  stagePhoto: (source: string, utcOffsetMin: number) =>
+    invoke<Omit<StagedPhoto, "annotation">>("stage_photo", { source, utcOffsetMin }).then((p): StagedPhoto => ({ ...p, annotation: null })),
   discardStagedPhoto: (token: string) => invoke<void>("discard_staged_photo", { token }),
   /** The subset of `tokens` whose staged file still exists. */
   existingStagedPhotos: (tokens: string[]) => invoke<string[]>("existing_staged_photos", { tokens }),
@@ -204,8 +216,8 @@ export const api = {
   /** Writes the project's report PDF. `timeZone`: IANA name of the device's zone; `utcOffsetMin`: its current offset (fallback). */
   generateReport: (projectId: string, lang: "en" | "pt", timeZone: string, utcOffsetMin: number) =>
     invoke<ReportResult>("generate_report", { projectId, lang, timeZone, utcOffsetMin }),
-  /** Debug builds only (the command does not exist in release builds, except local `dev-seed` ones): seeds `count` observations on a plan. */
-  devSeedObservations: (planId: string, count: number) => invoke<number>("dev_seed_observations", { planId, count }),
+  /** Debug builds only (the command does not exist in release builds, except local `dev-seed` ones): seeds `count` observations on a plan, with shapes on every photo when `annotate`. */
+  devSeedObservations: (planId: string, count: number, annotate: boolean) => invoke<number>("dev_seed_observations", { planId, count, annotate }),
 };
 
 /** The device's IANA time zone (e.g. "Europe/Lisbon"); "" when the WebView cannot say. */
