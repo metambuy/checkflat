@@ -152,7 +152,7 @@ pub fn stroke_px(width: u32, height: u32) -> f64 {
 pub fn arrow_head(tail: (f64, f64), tip: (f64, f64), len: f64) -> Option<((f64, f64), (f64, f64))> {
     let (dx, dy) = (tail.0 - tip.0, tail.1 - tip.1);
     let d = dx.hypot(dy);
-    if !(d > 0.0) {
+    if !d.is_finite() || d <= 0.0 {
         return None;
     }
     let (ux, uy) = (dx / d, dy / d);
