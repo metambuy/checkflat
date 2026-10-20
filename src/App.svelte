@@ -12,6 +12,7 @@
   import ProjectScreen from "./lib/screens/ProjectScreen.svelte";
   import ProjectSettingsScreen from "./lib/screens/ProjectSettingsScreen.svelte";
   import PlanScreen from "./lib/screens/PlanScreen.svelte";
+  import ObservationListScreen from "./lib/screens/ObservationListScreen.svelte";
   // Dev screen only in spike builds (see lib/devlog.ts). Kept inline so the bundler folds it and a
   // normal release bundle drops the Dev chunk (an imported constant is not folded).
   const SPIKES = import.meta.env.DEV || import.meta.env.VITE_SPIKES === "1";
@@ -83,7 +84,9 @@
   {:else if s.name === "projectSettings"}
     {#key s.id}<ProjectSettingsScreen id={s.id} />{/key}
   {:else if s.name === "plan"}
-    {#key s.planId}<PlanScreen projectId={s.projectId} planId={s.planId} recovered={s.recovered ?? null} />{/key}
+    {#key s.planId}<PlanScreen projectId={s.projectId} planId={s.planId} recovered={s.recovered ?? null} focusId={s.focusId ?? null} />{/key}
+  {:else if s.name === "observations"}
+    {#key s.projectId}<ObservationListScreen route={s} />{/key}
   {:else if devScreen}
     {#await devScreen then m}<m.default />{/await}
   {/if}

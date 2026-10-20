@@ -2,7 +2,9 @@
   // Plan viewer (D-014): pre-rendered tile pyramid as <img> tiles, pan/zoom by CSS transform, pins
   // as a constant-size overlay. World px = px of the top tile level. The lowest level is always
   // underneath (never blank); the level matching the zoom is chosen when a gesture settles, and
-  // only its visible tiles are in the DOM.
+  // only its visible tiles are in the DOM. Stored pins are not draggable (Sprint 4b: a touch that
+  // starts on one pans the plan, or selects it if it does not move); only the draft pin is dragged,
+  // which is also how a stored pin is moved (move mode, draft.ts).
   import { onMount, tick } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import type { Observation, TileManifest } from "../api";
@@ -18,11 +20,11 @@
     dir,
     pins,
     draft,
+    draftLabel = null,
     selectedId = null,
     adding = false,
     ontap,
     onpintap,
-    onpinmove,
     ondraftmove,
     onready,
   }: {
@@ -30,12 +32,13 @@
     dir: string;
     pins: Observation[];
     draft: Point | null;
+    /** Move mode: the moved pin's marker, shown on the draft instead of "+". */
+    draftLabel?: string | null;
     selectedId?: string | null;
     /** Add-pin mode: the next tap on the plan places the draft (crosshair cursor). */
     adding?: boolean;
     ontap: (p: Point) => void;
     onpintap: (id: string) => void;
-    onpinmove: (id: string, p: Point) => void;
     ondraftmove: (p: Point) => void;
     /** Once, when the first tiles are decoded and on screen. */
     onready?: () => void;
@@ -48,8 +51,8 @@
   let view = $state<Size>({ w: 0, h: 0 });
   let t = $state<Transform>({ x: 0, y: 0, scale: 1 });
   let levelIdx = $state(0);
-  // Pin being dragged (id "draft" for the draft pin) and its live position.
-  let drag = $state<{ id: string; p: Point } | null>(null);
+  // Live position of the draft pin while it is being dragged.
+  let drag = $state<Point | null>(null);
 
   // World size: the top level the generator produces, so the transform stays valid while higher
   // levels are still being generated.
@@ -127,12 +130,17 @@
     settle();
   }
 
+  /** Whether the viewer has a size yet (a 0×0 container is ignored, see onMount). Reads reactive state, so an effect that calls it re-runs when the size arrives. */
+  export function hasView(): boolean {
+    return hasArea(view);
+  }
+
   const screenOf = (p: Point) => toScreen(t, worldSize, p.x, p.y);
   /** Pin position inside the pins layer (which is translated by t.x, t.y). */
   const offsetOf = (p: Point) => ({ x: p.x * worldSize.w * t.scale, y: p.y * worldSize.h * t.scale });
 
-  /** Pointer handling on a pin: a short press is a tap (select), movement beyond the slop drags. */
-  function pinPointer(e: PointerEvent, id: string, start: Point) {
+  /** Pointer handling on the draft pin: movement beyond the slop drags it, saved on release. */
+  function pinPointer(e: PointerEvent, start: Point) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
@@ -146,7 +154,7 @@
       if (!dragging && Math.hypot(m.clientX - x0, m.clientY - y0) < DRAG_SLOP) return;
       dragging = true;
       const n = toNorm(t, worldSize, m.clientX - r.left - off.x, m.clientY - r.top - off.y);
-      drag = { id, p: { x: clamp01(n.x), y: clamp01(n.y) } };
+      drag = { x: clamp01(n.x), y: clamp01(n.y) };
     };
     const up = (u: PointerEvent) => {
       if (u.pointerId !== e.pointerId) return;
@@ -155,17 +163,12 @@
       el.removeEventListener("pointercancel", up);
       const d = drag;
       drag = null;
-      if (dragging && d && u.type === "pointerup") {
-        if (id === "draft") ondraftmove(d.p);
-        else onpinmove(id, d.p);
-      } else if (!dragging && u.type === "pointerup" && id !== "draft") onpintap(id);
+      if (dragging && d && u.type === "pointerup") ondraftmove(d);
     };
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", up);
   }
-
-  const posOf = (id: string, p: Point) => (drag?.id === id ? drag.p : p);
 
   onMount(() => {
     // A 0×0 container (window minimised, layout not settled) is ignored: no transform is computed
@@ -196,6 +199,7 @@
         const p = toNorm(t, worldSize, x, y);
         if (insidePlan(p)) ontap(p);
       },
+      pintap: (id) => onpintap(id),
     });
     return () => { detach(); ro.disconnect(); };
   });
@@ -207,7 +211,8 @@
   });
 </script>
 
-<div class="viewer" class:adding bind:this={container}>
+<!-- contextmenu is prevented: a still press longer than ~500 ms raises it and Chrome then cancels the pointer (a slow tap on a pin, a slow drag of the draft). -->
+<div class="viewer" class:adding bind:this={container} oncontextmenu={(e) => e.preventDefault()} role="presentation">
   <div class="world" style={`width:${worldSize.w}px;height:${worldSize.h}px;transform:translate(${t.x}px,${t.y}px) scale(${t.scale})`}>
     {#each tiles as tl (tl.key)}
       <img src={tl.src} alt="" decoding="async" draggable="false" style={`left:${tl.x}px;top:${tl.y}px;width:${tl.w}px;height:${tl.h}px`} />
@@ -217,20 +222,18 @@
        offset depends on the zoom only. Pins keep their size at every zoom. -->
   <div class="pins" style={`transform:translate(${t.x}px,${t.y}px)`}>
     {#each pins as pin (pin.id)}
-      {@const s = offsetOf(posOf(pin.id, { x: pin.xNorm, y: pin.yNorm }))}
+      {@const s = offsetOf({ x: pin.xNorm, y: pin.yNorm })}
       <button
-        data-pin
+        data-pin={pin.id}
         class="pin"
         class:selected={pin.id === selectedId}
-        class:dragging={drag?.id === pin.id}
         style={`left:${s.x}px;top:${s.y}px`}
-        onpointerdown={(e) => pinPointer(e, pin.id, { x: pin.xNorm, y: pin.yNorm })}
         aria-label={pin.ref}
       ><span class="mark"></span><span class="num" class:long={pin.marker.length > 2}>{pin.marker}</span></button>
     {/each}
     {#if draft}
-      {@const s = offsetOf(posOf("draft", draft))}
-      <button data-pin class="pin draft" class:dragging={drag?.id === "draft"} style={`left:${s.x}px;top:${s.y}px`} onpointerdown={(e) => pinPointer(e, "draft", draft)} aria-label="draft"><span class="mark"></span><span class="num">+</span></button>
+      {@const s = offsetOf(drag ?? draft)}
+      <button data-drag class="pin draft" class:moving={draftLabel !== null} class:dragging={drag !== null} style={`left:${s.x}px;top:${s.y}px`} onpointerdown={(e) => pinPointer(e, draft)} aria-label="draft"><span class="mark"></span><span class="num" class:long={(draftLabel ?? "").length > 2}>{draftLabel ?? "+"}</span></button>
     {/if}
   </div>
   <div class="zoom">{zoom.toFixed(1)}×</div>
@@ -245,8 +248,9 @@
   .pins { position: absolute; left: 0; top: 0; width: 0; height: 0; }
   .pin {
     position: absolute; width: 34px; height: 46px; margin: -46px 0 0 -17px; min-height: 0; padding: 0;
-    border: none; background: none; touch-action: none; cursor: grab;
+    border: none; background: none; touch-action: none; cursor: pointer;
   }
+  .pin.draft { cursor: grab; }
   .mark {
     position: absolute; left: 0; top: 0; width: 34px; height: 34px; box-sizing: border-box;
     border-radius: 50% 50% 50% 0; transform: translate(0, 6px) rotate(-45deg); transform-origin: 50% 50%;
@@ -258,6 +262,10 @@
   .pin.selected .mark { background: #143c78; outline: 3px solid #ffd54f; }
   .pin.draft .mark { background: #fff; border: 2px dashed #c62828; }
   .pin.draft .num { color: #c62828; font-size: 22px; }
+  /* Move mode: the draft is the selected pin, on its way to a new place. */
+  .pin.draft.moving .mark { background: #143c78; border: 2px solid #fff; outline: 3px solid #ffd54f; }
+  .pin.draft.moving .num { color: #fff; font-size: 13px; }
+  .pin.draft.moving .num.long { font-size: 9px; }
   .pin.dragging { cursor: grabbing; z-index: 2; }
   .zoom { position: absolute; right: 8px; top: 8px; color: #fff; background: rgba(0, 0, 0, 0.55); padding: 2px 8px; border-radius: 10px; font-size: 12px; pointer-events: none; }
 </style>

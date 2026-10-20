@@ -3,6 +3,7 @@
   import { api, asAppError, deviceTimeZone, ptToMm, utcOffsetMin, type AppError, type Plan, type Project, type ReportResult } from "../api";
   import { lang, t, type Lang } from "../i18n.svelte";
   import { go } from "../nav.svelte";
+  import { listRoute } from "../list/rows";
   import { addressSaver, type SaveStatus } from "../addressSaver";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
@@ -124,6 +125,10 @@
         </p>
       {/if}
     </header>
+
+    <div class="card row">
+      <button class="plain grow" onclick={() => go(listRoute(id))}><strong>{t("observations.title")}</strong></button>
+    </div>
 
     <div class="row">
       <h2 class="grow">{t("project.plans")}</h2>

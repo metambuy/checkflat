@@ -34,3 +34,10 @@ test("Back during an edit save does nothing: it must not deselect the pin, which
   assert.equal(backStep({ ...editSaving, saving: false }), "sheet", "once the save has finished Back closes the sheet");
   assert.equal(backStep({ ...editSaving, dialog: true }), "dialog", "the delete dialog still comes first");
 });
+
+test("move mode is a draft to Back: one press leaves it (Cancel), a move being saved is not interrupted", () => {
+  // The moved pin is the draft (draft.ts `moving`), so backStep needs no case of its own.
+  assert.equal(backStep({ ...idle, draft: true, selected: true }), "draft", "Back cancels the move, the pin stays selected");
+  assert.equal(backStep({ ...idle, selected: true }), "selection", "the next Back deselects");
+  assert.equal(backStep({ ...idle, draft: true, saving: true, selected: true }), "busy");
+});

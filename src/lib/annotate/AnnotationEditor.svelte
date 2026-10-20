@@ -8,6 +8,7 @@
   import { onMount, tick } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { t } from "../i18n.svelte";
+  import Icon from "../components/Icon.svelte";
   import { pushBackHandler } from "../nav.svelte";
   import { begin, cancelStroke, commit, deleteSelected, end, initial, liveShape, setTool, THIN_CSS, undo, update, type EditorState, type Tool } from "./editor";
   import { fitBox, toImage, type Size } from "./geometry";
@@ -134,15 +135,16 @@
   </div>
   <!-- The limit message takes the hint's place (no layout jump) until the next stroke or a removal. -->
   <p class="hint" class:limit={editor?.limit} aria-live="polite">{editor?.limit ? t("annotate.limit") : t("annotate.hint")}</p>
+  <!-- Icons, so the five buttons stay on one row at 360 px in EN and PT; the names come from the strings. -->
   <div class="tools">
     {#each tools as tool (tool)}
-      <button type="button" class="dark" class:on={editor?.tool === tool} aria-pressed={editor?.tool === tool} onclick={() => (editor = editor && setTool(editor, tool))} disabled={!editor}>
-        {t(`annotate.${tool}`)}
+      <button type="button" class="dark icon" class:on={editor?.tool === tool} aria-pressed={editor?.tool === tool} aria-label={t(`annotate.${tool}`)} title={t(`annotate.${tool}`)} onclick={() => (editor = editor && setTool(editor, tool))} disabled={!editor}>
+        <Icon name={tool} />
       </button>
     {/each}
     <span class="gap"></span>
-    <button type="button" class="dark" onclick={() => (editor = editor && undo(editor))} disabled={!editor || editor.shapes.length === 0}>{t("annotate.undo")}</button>
-    <button type="button" class="dark" onclick={() => (editor = editor && deleteSelected(editor))} disabled={!editor || editor.selected === null}>{t("annotate.delete")}</button>
+    <button type="button" class="dark icon" aria-label={t("annotate.undo")} title={t("annotate.undo")} onclick={() => (editor = editor && undo(editor))} disabled={!editor || editor.shapes.length === 0}><Icon name="undo" /></button>
+    <button type="button" class="dark icon" aria-label={t("annotate.delete")} title={t("annotate.delete")} onclick={() => (editor = editor && deleteSelected(editor))} disabled={!editor || editor.selected === null}><Icon name="trash" /></button>
   </div>
 </div>
 
@@ -163,8 +165,9 @@
   .picture img { display: block; width: 100%; height: 100%; pointer-events: none; }
   .hint { margin: 0; padding: 0.25rem 12px 0; font-size: 0.85rem; color: #bbb; text-align: center; }
   .hint.limit { color: #f0b8a8; }
-  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.5rem 12px; }
-  .gap { flex: 1; }
+  .tools { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.5rem; padding: 0.5rem 12px; }
+  .tools .icon { width: 48px; min-width: 48px; height: 48px; }
+  .gap { flex: 1; min-width: 0; }
   .dark { background: #2b2b2b; color: #fff; border-color: #555; }
   .dark:active { background: #444; }
   .dark.on { background: #e60000; border-color: #e60000; }
