@@ -213,6 +213,69 @@ mod tests {
         assert!(is_grey(img.get_pixel(320, 120)), "inside the V, not on it");
     }
 
+    /// Portrait photos: the fractions apply to the photo's own width and height, so an ellipse with
+    /// rx = ry = 0.25 is a tall oval (not a circle of radius w/4), an arrow down the middle runs
+    /// along the long side, and the stroke follows the long side (the height). A 1200×1600 photo
+    /// (downscaled to 600×800) and a 480×640 one (kept at its size, the small path).
+    #[test]
+    fn portrait_photos_get_their_shapes_where_the_app_shows_them() {
+        for (src, (w, h)) in [(grey(1200, 1600), (600u32, 800u32)), (grey(480, 640), (480, 640))] {
+            let (fw, fh) = (f64::from(w), f64::from(h));
+            let stroke = stroke_px(w, h);
+            assert_eq!(stroke, STROKE_FRACTION * fh, "the long side is the height");
+            // The pixel at fractions (fx, fy) of the photo, moved by (dx, dy) pixels.
+            let pix = |img: &RgbImage, fx: f64, fy: f64, dx: f64, dy: f64| *img.get_pixel((fx * fw + dx).round() as u32, (fy * fh + dy).round() as u32);
+            let red_at = |img: &RgbImage, what: &str, fx: f64, fy: f64, dx: f64, dy: f64| {
+                let p = pix(img, fx, fy, dx, dy);
+                assert!(is_red(&p), "{what} at ({fx}, {fy}) + ({dx:.1}, {dy:.1}) of {w}x{h}: {p:?}");
+            };
+            let grey_at = |img: &RgbImage, what: &str, fx: f64, fy: f64, dx: f64, dy: f64| {
+                let p = pix(img, fx, fy, dx, dy);
+                assert!(is_grey(&p), "{what} at ({fx}, {fy}) + ({dx:.1}, {dy:.1}) of {w}x{h}: {p:?}");
+            };
+
+            // Ellipse: the ring is w/2 wide and h/2 tall; a circle of radius w/4 would have its top
+            // and bottom nearer the centre, exactly where the oval is empty.
+            let out = report_photo(&src, Some(&ellipse(0.5, 0.5, 0.25, 0.25))).unwrap();
+            assert_eq!((out.width, out.height), (w, h));
+            let img = decoded(&out.jpeg);
+            assert_eq!(img.dimensions(), (w, h));
+            for (fx, fy) in [(0.75, 0.5), (0.25, 0.5), (0.5, 0.25), (0.5, 0.75)] {
+                red_at(&img, "ring", fx, fy, 0.0, 0.0);
+            }
+            for (what, dy) in [("a circle's top", -0.25 * fw), ("a circle's bottom", 0.25 * fw), ("centre", 0.0)] {
+                grey_at(&img, what, 0.5, 0.5, 0.0, dy);
+            }
+            grey_at(&img, "corner", 0.02, 0.02, 0.0, 0.0);
+            grey_at(&img, "corner", 0.98, 0.98, 0.0, 0.0);
+
+            // Arrow from (0.5, 0.9) up to (0.5, 0.1): shaft on x = w/2; the chevron legs run from the
+            // tip down and out, 4 strokes long at 30°, so their midpoints sit (±stroke, 1.73·stroke)
+            // from the tip.
+            let arrow = Annotation::new(vec![Shape::Arrow { x1: 0.5, y1: 0.9, x2: 0.5, y2: 0.1 }]);
+            let img = decoded(&report_photo(&src, Some(&arrow)).unwrap().jpeg);
+            assert_eq!(img.dimensions(), (w, h));
+            let leg = stroke * 3f64.sqrt();
+            for (what, fy, dy) in [("tail", 0.9, 0.0), ("middle", 0.5, 0.0), ("shaft near the tip", 0.1, 2.0 * stroke)] {
+                red_at(&img, what, 0.5, fy, 0.0, dy);
+            }
+            red_at(&img, "left chevron leg", 0.5, 0.1, -stroke, leg);
+            red_at(&img, "right chevron leg", 0.5, 0.1, stroke, leg);
+            for (what, fx, fy) in [("left of the shaft", 0.25, 0.5), ("right of the shaft", 0.75, 0.5), ("above the tip", 0.5, 0.04), ("below the tail", 0.5, 0.97)] {
+                grey_at(&img, what, fx, fy, 0.0, 0.0);
+            }
+
+            // Freehand ">" through (0.3, 0.2), (0.7, 0.5), (0.3, 0.8).
+            let free = Annotation::new(vec![Shape::Freehand { pts: vec![[0.3, 0.2], [0.7, 0.5], [0.3, 0.8]] }]);
+            let img = decoded(&report_photo(&src, Some(&free)).unwrap().jpeg);
+            for (fx, fy) in [(0.3, 0.2), (0.7, 0.5), (0.3, 0.8), (0.5, 0.35), (0.5, 0.65)] {
+                red_at(&img, "freehand", fx, fy, 0.0, 0.0);
+            }
+            grey_at(&img, "between the arms", 0.4, 0.5, 0.0, 0.0);
+            grey_at(&img, "outside the point", 0.85, 0.5, 0.0, 0.0);
+        }
+    }
+
     #[test]
     fn strokes_are_antialiased() {
         // A diagonal shaft from (80,60) to (720,540) on 800×600: across it (along the normal
