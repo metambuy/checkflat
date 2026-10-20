@@ -124,5 +124,6 @@
   "annotate.undo": "Undo",
   "annotate.delete": "Delete shape",
   "annotate.done": "Done",
-  "annotate.hint": "Draw with one finger. Tap a shape to select it."
+  "annotate.hint": "Draw with one finger. Tap a shape to select it.",
+  "annotate.limit": "Drawing limit reached — undo or delete a shape"
 }

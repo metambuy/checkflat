@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_POINTS, MAX_SHAPES, parseAnnotation, strokeWidth, type Shape } from "./model.ts";
+import { MAX_POINTS, MAX_SHAPES, parseAnnotation, strokeWidth, validShapes, type Shape } from "./model.ts";
 
 const ellipse = (over: Partial<Extract<Shape, { t: "ellipse" }>> = {}): Shape => ({ t: "ellipse", cx: 0.5, cy: 0.5, rx: 0.2, ry: 0.1, ...over });
 
@@ -45,6 +45,18 @@ test("limits are inclusive", () => {
   const three = { v: 1, shapes: [{ t: "freehand", pts }, { t: "freehand", pts }, { t: "freehand", pts }] };
   assert.equal(parseAnnotation(three)?.shapes.length, 3);
   assert.equal(parseAnnotation({ v: 1, shapes: [...three.shapes, { t: "freehand", pts }] }), null, "more than 6000 points in total");
+});
+
+test("validShapes keeps the good shapes in order and stays within the budgets", () => {
+  const pts = (n: number) => Array.from({ length: n }, (_, i) => [i / n, 0.5]);
+  const kept = validShapes([ellipse(), "nope", ellipse({ cx: 2 }), { t: "freehand", pts: pts(1) }, { t: "arrow", x1: 0, y1: 0, x2: 1, y2: 1 }, null]);
+  assert.deepEqual(kept.map((s) => s.t), ["ellipse", "arrow"]);
+  // A freehand that would pass the total is left out; a later, smaller one still fits.
+  const f = (n: number) => ({ t: "freehand", pts: pts(n) });
+  const out = validShapes([f(2000), f(2000), f(1500), f(2000), f(400), f(MAX_POINTS + 1), ellipse()]);
+  assert.deepEqual(out.map((s) => (s.t === "freehand" ? s.pts.length : s.t)), [2000, 2000, 1500, 400, "ellipse"]);
+  assert.equal(validShapes(Array.from({ length: MAX_SHAPES + 5 }, () => ellipse())).length, MAX_SHAPES);
+  assert.deepEqual(validShapes([]), []);
 });
 
 test("stroke width follows the long side", () => {

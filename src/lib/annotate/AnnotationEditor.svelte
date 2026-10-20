@@ -132,7 +132,8 @@
       {/if}
     </div>
   </div>
-  <p class="hint">{t("annotate.hint")}</p>
+  <!-- The limit message takes the hint's place (no layout jump) until the next stroke or a removal. -->
+  <p class="hint" class:limit={editor?.limit} aria-live="polite">{editor?.limit ? t("annotate.limit") : t("annotate.hint")}</p>
   <div class="tools">
     {#each tools as tool (tool)}
       <button type="button" class="dark" class:on={editor?.tool === tool} aria-pressed={editor?.tool === tool} onclick={() => (editor = editor && setTool(editor, tool))} disabled={!editor}>
@@ -161,6 +162,7 @@
   .picture.ready { visibility: visible; }
   .picture img { display: block; width: 100%; height: 100%; pointer-events: none; }
   .hint { margin: 0; padding: 0.25rem 12px 0; font-size: 0.85rem; color: #bbb; text-align: center; }
+  .hint.limit { color: #f0b8a8; }
   .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.5rem 12px; }
   .gap { flex: 1; }
   .dark { background: #2b2b2b; color: #fff; border-color: #555; }

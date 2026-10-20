@@ -62,6 +62,28 @@ function parseShape(raw: unknown): Shape | null {
 }
 
 /**
+ * The shapes of `raw` that pass the rules above, in order, within MAX_SHAPES and MAX_TOTAL_POINTS
+ * (a shape that would exceed a budget is left out). What the editor hands back, so that whatever
+ * its state, the sheet never gets an annotation the core would refuse; unlike `parseAnnotation`,
+ * which refuses a whole annotation for one bad shape, this keeps the good ones.
+ */
+export function validShapes(raw: readonly unknown[]): Shape[] {
+  const shapes: Shape[] = [];
+  let points = 0;
+  for (const r of raw) {
+    if (shapes.length >= MAX_SHAPES) break;
+    const s = parseShape(r);
+    if (!s) continue;
+    if (s.t === "freehand") {
+      if (points + s.pts.length > MAX_TOTAL_POINTS) continue;
+      points += s.pts.length;
+    }
+    shapes.push(s);
+  }
+  return shapes;
+}
+
+/**
  * The annotation in `v` (a backend object, a draft field, parsed JSON), or null when it is not a
  * valid one or has nothing drawn — "nothing drawn" is null throughout the app, never an empty list.
  */

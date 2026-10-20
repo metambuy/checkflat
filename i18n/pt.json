@@ -124,5 +124,6 @@
   "annotate.undo": "Anular",
   "annotate.delete": "Apagar forma",
   "annotate.done": "Concluir",
-  "annotate.hint": "Desenhe com um dedo. Toque numa forma para a selecionar."
+  "annotate.hint": "Desenhe com um dedo. Toque numa forma para a selecionar.",
+  "annotate.limit": "Limite do desenho atingido — anule ou apague uma forma"
 }
