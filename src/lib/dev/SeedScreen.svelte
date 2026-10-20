@@ -1,7 +1,8 @@
 <script lang="ts">
   // Debug builds only: seeds N observations (3 photos each) on a plan through the normal save
   // path — the 50-observation fixture for the report measurements (D-024). The command does not
-  // exist in release builds (`#[cfg(debug_assertions)]`), so this tab reports an error there.
+  // exist in release builds (`#[cfg(debug_assertions)]`) unless built locally with the `dev-seed`
+  // feature (D-026), so this tab reports an error there.
   import { onMount } from "svelte";
   import { api, type Plan, type ProjectSummary } from "../api";
 

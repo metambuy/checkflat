@@ -9,6 +9,12 @@ rust-version = "1.85"
 name = "checkflat_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Local measurement builds only (D-026): compiles the Dev → Seed command into a release build and
+# copies each report to the adb-readable Documents dir. CI never enables it; the android-release
+# job fails if the command name is found in the APK.
+dev-seed = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -20,7 +26,7 @@ base64 = "0.22"
 tauri-plugin-camera-capture = { path = "plugins/camera-capture" }
 checkflat-core = { path = "../crates/checkflat-core" }
 checkflat-report = { path = "../crates/checkflat-report" }
-# Only the debug-build seed command uses it directly (the core compiles it in anyway).
+# Only the seed command (debug or `dev-seed` builds) uses it directly (the core compiles it in anyway).
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"

@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 
 /// Android: `getExternalFilesDir(DOCUMENTS)`, readable with `adb shell cat` on a release build.
 /// Desktop: `<app data>/devlog`.
-fn log_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn log_dir(app: &AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "android")]
     let dir = app.path().document_dir().map_err(|e| e.to_string())?;
     #[cfg(not(target_os = "android"))]

@@ -123,6 +123,21 @@ jobs:
           mkdir -p out
           cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk "out/checkflat-$VERSION-$VERSION_CODE-arm64.apk"
 
+      # The Dev → Seed command exists only in debug builds and local `dev-seed` measurement builds (D-026).
+      # The .so is extracted to a file first so an unzip failure fails the step (inside a pipeline `|| true`
+      # would hide it), and `update_observation` (a neighbour in the same command-name table) must be
+      # found, so a renamed .so or a changed string pool cannot make the check pass on nothing.
+      - name: No dev-seed code in the release APK
+        run: |
+          APK=$(ls out/*.apk)
+          SO="$RUNNER_TEMP/libcheckflat_lib.so"
+          unzip -p "$APK" lib/arm64-v8a/libcheckflat_lib.so > "$SO" || { echo "::error::could not extract lib/arm64-v8a/libcheckflat_lib.so from $APK"; exit 1; }
+          [ -s "$SO" ] || { echo "::error::lib/arm64-v8a/libcheckflat_lib.so is empty in $APK"; exit 1; }
+          P=$(grep -a -c update_observation "$SO" || true)
+          [ "$P" -ge 1 ] || { echo "::error::control string update_observation not found in $SO; the dev-seed check cannot see the command table"; exit 1; }
+          N=$(grep -a -c dev_seed_observations "$SO" || true)
+          [ "$N" = "0" ] || { echo "::error::dev_seed_observations found in $APK"; exit 1; }
+
       # The APK byte size is the instrument for size decisions (D-004, D-024); the artifact zip is smaller.
       - name: Verify signature and version
         run: |

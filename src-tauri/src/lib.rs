@@ -25,7 +25,8 @@ fn platform_info() -> PlatformInfo {
 }
 
 /// The command list, plus any extra commands that exist only in some builds (the Dev screen's
-/// seed command is compiled out of release builds, so it cannot be named there).
+/// seed command is compiled out of release builds without the `dev-seed` feature, so it cannot be
+/// named there).
 macro_rules! handler {
     ($($extra:path),* $(,)?) => {
         tauri::generate_handler![
@@ -89,9 +90,9 @@ pub fn run() {
             app.manage(AppState::new(opened.conn, data_dir));
             Ok(())
         });
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "dev-seed"))]
     let builder = builder.invoke_handler(handler![commands::dev::dev_seed_observations]);
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(any(debug_assertions, feature = "dev-seed")))]
     let builder = builder.invoke_handler(handler![]);
     builder.run(tauri::generate_context!()).expect("error while running tauri application");
 }
