@@ -1,12 +1,52 @@
 //! Pins (observations placed on a plan). `create_observation` is the save of the observation
 //! sheet; the ref is computed in the core and returned as `ref` / `marker`.
+use std::collections::HashMap;
+
+use checkflat_core::annotation::{self, Annotation};
 use checkflat_core::models::Observation;
 use checkflat_core::photos::{PhotoAnnotation, PhotoInput};
-use checkflat_core::repo::{observations, projects};
+use checkflat_core::repo::{observations, photos as photo_repo, plans, projects};
+use serde::Serialize;
 use tauri::AppHandle;
 
+use super::photos::absolute;
 use crate::error::AppResult;
 use crate::state::run_db;
+
+/// One row of the observation list: the observation, its plan's title and the thumbnail (the
+/// first photo, absolute path for `convertFileSrc`, with its shapes); `None` for an observation
+/// migrated from Sprint 3a that has no photo.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObservationRow {
+    #[serde(flatten)]
+    pub observation: Observation,
+    pub plan_title: String,
+    pub thumb_path: Option<String>,
+    pub thumb_annotation: Option<Annotation>,
+}
+
+/// The project's open observations, newest first (the report's order), for the list screen.
+#[tauri::command]
+pub async fn list_observations(app: AppHandle, project_id: String) -> AppResult<Vec<ObservationRow>> {
+    run_db(app, move |c, dir| {
+        let titles: HashMap<String, String> = plans::list_for_project(c, &project_id)?.into_iter().map(|p| (p.id, p.title)).collect();
+        let mut first = photo_repo::first_for_project(c, &project_id)?;
+        Ok(observations::list_open_for_project(c, &project_id)?
+            .into_iter()
+            .map(|o| {
+                let photo = first.remove(&o.id);
+                ObservationRow {
+                    plan_title: titles.get(&o.plan_id).cloned().unwrap_or_default(),
+                    thumb_path: photo.as_ref().map(|p| absolute(dir, &p.file_path)),
+                    thumb_annotation: photo.and_then(|p| annotation::parse_stored(p.annotation_json.as_deref())),
+                    observation: o,
+                }
+            })
+            .collect())
+    })
+    .await
+}
 
 #[tauri::command]
 pub async fn list_pins(app: AppHandle, plan_id: String) -> AppResult<Vec<Observation>> {

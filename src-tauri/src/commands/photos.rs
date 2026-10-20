@@ -33,7 +33,7 @@ pub struct StagedPhotoView {
     pub taken_at: String,
 }
 
-fn absolute(dir: &std::path::Path, rel: &RelPath) -> String {
+pub(crate) fn absolute(dir: &std::path::Path, rel: &RelPath) -> String {
     rel.resolve(dir).to_string_lossy().into_owned()
 }
 

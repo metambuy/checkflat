@@ -55,6 +55,7 @@ macro_rules! handler {
             commands::plans::delete_plan,
             commands::plans::get_plan,
             commands::observations::list_pins,
+            commands::observations::list_observations,
             commands::observations::create_observation,
             commands::observations::update_observation,
             commands::observations::preview_ref,
