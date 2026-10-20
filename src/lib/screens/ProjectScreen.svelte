@@ -127,7 +127,7 @@
     </header>
 
     <div class="card row">
-      <button class="plain grow" onclick={() => go(listRoute(id))}><strong>{t("observations.title")}</strong></button>
+      <button class="plain grow observations" onclick={() => go(listRoute(id))}><strong>{t("observations.title")}</strong></button>
     </div>
 
     <div class="row">
@@ -184,4 +184,5 @@
   .report { margin-top: 0.75rem; }
   .done { word-break: break-all; }
   .done code { font-size: 11px; }
+  .observations { justify-content: center; }
 </style>

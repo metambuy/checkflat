@@ -118,6 +118,7 @@
   .list-screen { position: absolute; inset: 0; display: flex; flex-direction: column; }
   .topbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 12px; background: #fff; border-bottom: 1px solid #ddd; }
   .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .back { justify-content: center; }
   .list-screen > :global(.banner) { margin: 0.4rem 12px; }
   .chips { display: flex; gap: 0.5rem; padding: 0.5rem 12px; overflow-x: auto; background: #fff; border-bottom: 1px solid #ddd; flex: none; }
   .chip { flex: none; border-radius: 22px; }
