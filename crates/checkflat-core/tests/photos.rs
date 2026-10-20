@@ -399,7 +399,7 @@ fn invalid_or_foreign_annotations_are_refused_and_change_nothing() {
         vec![PhotoAnnotation { photo_id: mine[0].clone(), annotation: Some(bad.clone()) }],
         vec![PhotoAnnotation { photo_id: theirs[0].clone(), annotation: Some(ellipse()) }],
     ] {
-        let err = observations::update_observation(&conn, dir.path(), &obs.id, "changed", &[added.clone()], &[], &changes).unwrap_err();
+        let err = observations::update_observation(&conn, dir.path(), &obs.id, "changed", std::slice::from_ref(&added), &[], &changes).unwrap_err();
         assert!(matches!(err, CoreError::Validation(_)), "{err:?}");
         assert_eq!(observations::get(&conn, &obs.id).unwrap().description, "d");
         assert_eq!(photo_ids(&conn, &obs.id), mine);
