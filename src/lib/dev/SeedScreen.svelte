@@ -11,6 +11,7 @@
   let projectId = $state("");
   let planId = $state("");
   let count = $state(50);
+  let annotate = $state(false);
   let busy = $state(false);
   let log = $state<string[]>([]);
   const add = (s: string) => (log = [...log, `${new Date().toLocaleTimeString()} ${s}`]);
@@ -28,8 +29,8 @@
     busy = true;
     const started = performance.now();
     try {
-      const n = await api.devSeedObservations(planId, count);
-      add(`seeded ${n} observations in ${Math.round(performance.now() - started)} ms`);
+      const n = await api.devSeedObservations(planId, count, annotate);
+      add(`seeded ${n} observations${annotate ? " with annotations" : ""} in ${Math.round(performance.now() - started)} ms`);
     } catch (e) {
       add(`error: ${JSON.stringify(e)}`);
     } finally {
@@ -49,6 +50,7 @@
       {#each plans as p (p.id)}<option value={p.id}>{p.title}</option>{/each}
     </select>
     <input type="number" min="1" max="500" bind:value={count} disabled={busy} />
+    <label class="check"><input type="checkbox" bind:checked={annotate} disabled={busy} /> with annotations</label>
     <button class="primary" onclick={seed} disabled={busy || !planId}>Seed</button>
   </div>
   {#if busy}<p>seeding…</p>{/if}
@@ -59,4 +61,6 @@
   section { padding: 0.75rem; overflow: auto; height: 100%; }
   .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
   input { width: 5rem; }
+  .check { flex-direction: row; align-items: center; gap: 0.3rem; margin: 0; }
+  .check input { width: auto; min-height: 0; }
 </style>

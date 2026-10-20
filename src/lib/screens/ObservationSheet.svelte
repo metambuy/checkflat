@@ -13,9 +13,13 @@
   import { livePreview } from "../livePreview";
   import { capturePath, pickPath, stagePath } from "../photoSource";
   import { isAndroid } from "../platform";
-  import { addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, shown, startAdd, toSave, watchReturn, withExisting, type Phase, type PhotoSet } from "../sheet/photos";
+  import { addStaged, canAdd, canSave, count, MAX_PHOTOS, noPhotos, removeExisting, removeStaged, setAnnotation, shown, startAdd, toSave, watchReturn, withExisting, type Phase, type PhotoItem, type PhotoSet, type SheetPhotos } from "../sheet/photos";
   import { devlog } from "../devlog";
   import type { SheetState } from "../sheet/draft";
+  import type { Size } from "../annotate/geometry";
+  import type { Annotation } from "../annotate/model";
+  import AnnotationEditor from "../annotate/AnnotationEditor.svelte";
+  import ShapesOverlay from "../annotate/ShapesOverlay.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
   let {
@@ -39,7 +43,7 @@
     saving: boolean;
     /** The failed save, shown here so the user can fix the input and retry. */
     error: AppError | null;
-    onsave: (fraction: string, description: string, photos: { photos: { token: string; takenAt: string }[]; removed: string[] }) => void;
+    onsave: (fraction: string, description: string, photos: SheetPhotos) => void;
     oncancel: () => void;
     ondismiss: () => void;
   } = $props();
@@ -50,8 +54,12 @@
   const editing = untrack(() => observation !== null);
   let fraction = $state(untrack(() => initial?.fraction ?? ""));
   let description = $state(untrack(() => initial?.description ?? observation?.description ?? ""));
-  let photos = $state<PhotoSet>(untrack(() => (initial ? { existing: [], staged: initial.staged, removed: initial.removed } : noPhotos)));
+  let photos = $state<PhotoSet>(untrack(() => (initial ? { existing: [], staged: initial.staged, removed: initial.removed, annotations: initial.annotations } : noPhotos)));
   let phase = $state<Phase>("idle");
+  /** The photo open in the annotation editor. */
+  let annotating = $state<PhotoItem | null>(null);
+  /** Natural sizes of the thumbnails' images, for their overlays. */
+  let sizes = $state<Record<string, Size>>({});
   const busy = $derived(phase !== "idle");
   // Edit mode: the limit counts the stored photos, so the camera and the picker wait until they
   // are listed, and stay off if listing fails (the error is shown).
@@ -81,7 +89,7 @@
     if (!editing) previewer.update(typed);
   });
 
-  const snapshot = (): SheetState => ({ fraction, description, staged: photos.staged, removed: photos.removed });
+  const snapshot = (): SheetState => ({ fraction, description, staged: photos.staged, removed: photos.removed, annotations: photos.annotations });
   // Every change of the input goes to the plan screen, which keeps the draft stored while the sheet is open.
   $effect(() => {
     const s = snapshot();
@@ -143,6 +151,18 @@
   function choose(code: string) {
     fraction = code;
   }
+  function sized(key: string, e: Event) {
+    const img = e.currentTarget as HTMLImageElement;
+    sizes = { ...sizes, [key]: { w: img.naturalWidth, h: img.naturalHeight } };
+  }
+  function openEditor(item: PhotoItem) {
+    (document.activeElement as HTMLElement | null)?.blur?.(); // soft keyboard down before the editor takes the screen
+    annotating = item;
+  }
+  function annotated(a: Annotation | null) {
+    if (annotating) photos = setAnnotation(photos, annotating.key, annotating.staged, a);
+    annotating = null;
+  }
   function submit(e: Event) {
     e.preventDefault();
     if (!saving && canSave(photos, busy)) onsave(typed, description, toSave(photos));
@@ -150,8 +170,8 @@
 </script>
 
 <div class="backdrop" role="presentation">
-  <!-- Escape is marked handled so the plan screen's Back does not act on the same key press. -->
-  <div class="dialog sheet" role="dialog" aria-modal="true" tabindex="-1" onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); if (!saving) oncancel(); } }}>
+  <!-- Escape is marked handled so the plan screen's Back does not act on the same key press. While the annotation editor (a sibling, not a child) is open the sheet is inert: Tab cannot reach it and its own Escape handler stays out of the way. -->
+  <div class="dialog sheet" role="dialog" aria-modal="true" tabindex="-1" inert={annotating !== null} onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); if (!saving) oncancel(); } }}>
   <form onsubmit={submit}>
     <h2>{editing ? t("sheet.title_edit") : t("sheet.title")}</h2>
     <ErrorBanner error={error ?? photoError} ondismiss={() => { ondismiss(); photoError = null; }} />
@@ -190,7 +210,13 @@
       <ul class="thumbs">
         {#each shown(photos) as item, i (item.key)}
           <li>
-            <img src={convertFileSrc(item.path)} alt={t("photos.thumb", { n: i + 1 })} />
+            <!-- The thumbnail opens the annotation editor; the stored shapes are drawn over it. -->
+            <button type="button" class="thumb" onclick={() => openEditor(item)} disabled={saving} aria-label={t("annotate.open", { n: i + 1 })} title={t("annotate.open", { n: i + 1 })}>
+              <img src={convertFileSrc(item.path)} alt={t("photos.thumb", { n: i + 1 })} onload={(e) => sized(item.key, e)} />
+              {#if item.annotation && sizes[item.key]}
+                <ShapesOverlay shapes={item.annotation.shapes} width={sizes[item.key].w} height={sizes[item.key].h} fit="cover" thumb />
+              {/if}
+            </button>
             <button type="button" class="x" aria-label={t("photos.remove")} title={t("photos.remove")} onclick={() => removeItem(item.key, item.staged)} disabled={saving}>×</button>
           </li>
         {/each}
@@ -215,6 +241,10 @@
   </form>
   </div>
 </div>
+{#if annotating}
+  <!-- Above the sheet (its own fixed layer), outside the sheet's scrolling box. -->
+  <AnnotationEditor path={annotating.path} annotation={annotating.annotation} ondone={annotated} oncancel={() => (annotating = null)} />
+{/if}
 
 <style>
   .sheet { max-height: 100%; overflow-y: auto; }
@@ -228,6 +258,7 @@
   .photos h3 { margin: 0.75rem 0 0.4rem; font-size: 1rem; }
   .thumbs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
   .thumbs li { position: relative; width: 96px; height: 96px; }
+  .thumb { position: relative; width: 100%; height: 100%; min-height: 0; padding: 0; border: none; background: none; overflow: hidden; border-radius: 6px; }
   .thumbs img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; border: 1px solid #ccc; background: #eee; display: block; }
   /* 44 px touch target, drawn as a smaller badge in the corner. */
   .x { position: absolute; top: -10px; right: -10px; width: 44px; height: 44px; min-height: 0; padding: 0; border: none; background: none; font-size: 0; }

@@ -1,17 +1,37 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { createDraftSaver, MAX_AGE_MS, parseDraft, recoverDraft, restoreTarget, serializeDraft, type RecoveryDeps, type SheetDraft } from "./draft.ts";
+import type { Annotation } from "../annotate/model.ts";
 
 const NOW = 1_800_000_000_000;
-const photo = (t: string) => ({ token: t, path: `/data/tmp/${t}.jpg`, takenAt: "2026-10-08T09:00:00.000Z" });
+const photo = (t: string, annotation: Annotation | null = null) => ({ token: t, path: `/data/tmp/${t}.jpg`, takenAt: "2026-10-08T09:00:00.000Z", annotation });
+const ellipse: Annotation = { v: 1, shapes: [{ t: "ellipse", cx: 0.5, cy: 0.5, rx: 0.2, ry: 0.1 }] };
 const draft = (over: Partial<SheetDraft> = {}): SheetDraft => ({
   v: 1, mode: "create", projectId: "p", planId: "pl", observationId: null, x: 0.25, y: 0.75,
-  fraction: "A", description: "crack", staged: [photo("t1")], removed: [], savedAt: NOW - 1000, ...over,
+  fraction: "A", description: "crack", staged: [photo("t1")], removed: [], annotations: {}, savedAt: NOW - 1000, ...over,
 });
 
 test("a draft round-trips", () => {
   const d = draft({ staged: [photo("t1"), photo("t2")], description: "Ático · área\nline 2" });
   assert.deepEqual(parseDraft(serializeDraft(d), NOW), d);
+});
+
+test("annotations round-trip; a draft from before them parses with none; a bad one drops the shapes, not the draft", () => {
+  const d = draft({ mode: "edit", observationId: "o1", staged: [photo("t1", ellipse)], annotations: { ph1: ellipse, ph2: null } });
+  assert.deepEqual(parseDraft(serializeDraft(d), NOW), d);
+  const { annotations: _a, ...older } = draft();
+  const old = JSON.stringify({ ...older, staged: [{ token: "t1", path: "/data/tmp/t1.jpg", takenAt: "2026-10-08T09:00:00.000Z" }] });
+  assert.deepEqual(parseDraft(old, NOW), draft());
+  const bad = JSON.stringify(draft({ staged: [photo("t1", { v: 1, shapes: [{ t: "ellipse", cx: 2, cy: 0, rx: 0.1, ry: 0.1 }] })], annotations: { ph1: { v: 9 } as never } }));
+  assert.deepEqual(parseDraft(bad, NOW), draft({ annotations: {} }), "a staged photo loses the shapes; the stored photo's key is gone, so Save leaves it as stored");
+  assert.equal(parseDraft(JSON.stringify({ ...draft(), annotations: [] }), NOW), null, "the wrong shape of field is no draft");
+});
+
+test("a stored photo's explicit clear survives the draft; an unparseable edit does not become one", () => {
+  const raw = (annotations: Record<string, unknown>) => JSON.stringify({ ...draft({ mode: "edit", observationId: "o1", staged: [] }), annotations });
+  const parsed = parseDraft(raw({ cleared: null, kept: ellipse, garbage: { v: 1, shapes: [{ t: "square" }] }, wrongType: 5, wrongVersion: { v: 2, shapes: ellipse.shapes }, empty: { v: 1, shapes: [] } }), NOW);
+  assert.deepEqual(parsed?.annotations, { cleared: null, kept: ellipse }, "only the explicit clear and the valid edit remain");
+  assert.ok(parsed && !("garbage" in parsed.annotations) && !("wrongType" in parsed.annotations));
 });
 
 test("nothing, garbage, wrong shape, too old or from the future is no draft", () => {

@@ -1,6 +1,7 @@
 //! Photos: `stage_photo` takes a picked or captured image once, processes it in the core
 //! (orientation, ≤ 1600 px JPEG) and returns a token the observation save consumes;
 //! `discard_staged_photo` drops it; `list_photos` returns an observation's stored photos.
+use checkflat_core::annotation::{self, Annotation};
 use checkflat_core::paths::RelPath;
 use checkflat_core::photos;
 use checkflat_core::repo::photos as photo_repo;
@@ -12,7 +13,8 @@ use super::plans::to_file_path;
 use crate::error::{AppError, AppResult};
 use crate::state::{run_db, run_fs};
 
-/// A photo as the WebView shows it: `path` is absolute, for `convertFileSrc`.
+/// A photo as the WebView shows it: `path` is absolute, for `convertFileSrc`; `annotation` is the
+/// stored shapes (Sprint 4), `None` when nothing is drawn.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PhotoView {
@@ -20,6 +22,7 @@ pub struct PhotoView {
     pub observation_id: String,
     pub path: String,
     pub taken_at: String,
+    pub annotation: Option<Annotation>,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,7 +72,13 @@ pub async fn list_photos(app: AppHandle, observation_id: String) -> AppResult<Ve
     run_db(app, move |c, dir| {
         Ok(photo_repo::list_for_observation(c, &observation_id)?
             .into_iter()
-            .map(|p| PhotoView { path: absolute(dir, &p.file_path), id: p.id, observation_id: p.observation_id, taken_at: p.taken_at })
+            .map(|p| PhotoView {
+                path: absolute(dir, &p.file_path),
+                annotation: annotation::parse_stored(p.annotation_json.as_deref()),
+                id: p.id,
+                observation_id: p.observation_id,
+                taken_at: p.taken_at,
+            })
             .collect())
     })
     .await

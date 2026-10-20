@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use checkflat_core::annotation;
 use checkflat_core::i18n::{t, Lang};
 use checkflat_core::models::{Observation, Photo, Plan, Project};
 use checkflat_core::paths::plan_tiles_dir;
@@ -219,11 +220,11 @@ pub fn prepare(data_dir: &Path, src: ReportSource) -> Result<ReportInput> {
         let started = Instant::now();
         let mut photo_data = Vec::with_capacity(photos.len());
         for (j, photo) in photos.iter().enumerate() {
-            let prepared = std::fs::read(photo.file_path.resolve(data_dir)).map_err(crate::ReportError::Io).and_then(|bytes| {
-                // Borrowed until Sprint 4 draws on it: no copy of the stored photo.
-                let flat = annotate::flatten(&bytes, photo.annotation_json.as_deref())?;
-                annotate::report_photo(&flat)
-            });
+            // A stored annotation that no longer parses is logged and the photo shown without it.
+            let annotation = annotation::parse_stored(photo.annotation_json.as_deref());
+            let prepared = std::fs::read(photo.file_path.resolve(data_dir))
+                .map_err(crate::ReportError::Io)
+                .and_then(|bytes| annotate::report_photo(&bytes, annotation.as_ref()));
             match prepared {
                 Ok(p) => {
                     let file = format!("img/photo-{i}-{j}.jpg");

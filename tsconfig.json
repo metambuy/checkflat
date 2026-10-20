@@ -4,6 +4,10 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    // Pure modules that import each other at runtime (src/lib/annotate, src/lib/sheet) use the
+    // `.ts` extension, which Node's test runner needs; nothing is emitted by tsc (Vite bundles).
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "strict": true,
     "resolveJsonModule": true,
     "allowJs": true,

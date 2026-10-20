@@ -115,5 +115,15 @@
   "report.no_snapshot": "Plan not prepared on this device",
   "report.no_observations": "No open observations.",
   "error.report": "The report could not be generated: {message}",
-  "dev.seed": "Seed observations"
+  "dev.seed": "Seed observations",
+  "annotate.title": "Annotate photo",
+  "annotate.open": "Annotate photo {n}",
+  "annotate.ellipse": "Ellipse",
+  "annotate.arrow": "Arrow",
+  "annotate.freehand": "Freehand",
+  "annotate.undo": "Undo",
+  "annotate.delete": "Delete shape",
+  "annotate.done": "Done",
+  "annotate.hint": "Draw with one finger. Tap a shape to select it.",
+  "annotate.limit": "Drawing limit reached — undo or delete a shape"
 }

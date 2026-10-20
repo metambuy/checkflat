@@ -23,7 +23,7 @@
   import { createDraftSaver, DRAFT_KEY, restoreTarget, type SheetDraft, type SheetState } from "../sheet/draft";
   import { saveThenRefresh } from "../sheet/flow";
 
-  type SheetPhotos = { photos: { token: string; takenAt: string }[]; removed: string[] };
+  import type { SheetPhotos } from "../sheet/photos";
 
   let { projectId, planId, recovered = null }: { projectId: string; planId: string; recovered?: SheetDraft | null } = $props();
   // The input of an open sheet is kept stored (SQLite) until the sheet closes, so it survives Android
@@ -179,7 +179,7 @@
     editSaving = true;
     try {
       await saveThenRefresh({
-        save: async () => void (await api.updateObservation(pin.id, description, photos.photos, photos.removed)),
+        save: async () => void (await api.updateObservation(pin.id, description, photos.photos, photos.removed, photos.annotations)),
         onSaved: closeSheet,
         refresh: async () => void (pins = await api.listPins(planId)),
         onSaveError: (e) => (sheetError = asAppError(e)),

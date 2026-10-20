@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::{PrimitiveDateTime, UtcOffset};
 
+use crate::annotation::Annotation;
 use crate::paths::{staging_photo, TMP_DIR};
 use crate::{clock, ids, CoreError, Result};
 
@@ -34,12 +35,24 @@ pub struct StagedPhoto {
     pub taken_at: String,
 }
 
-/// A staged photo handed back by the UI when the observation is saved.
+/// A staged photo handed back by the UI when the observation is saved, with the shapes drawn on it
+/// before the save (validated and stored by `repo::photos::attach`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PhotoInput {
     pub token: String,
     pub taken_at: String,
+    #[serde(default)]
+    pub annotation: Option<Annotation>,
+}
+
+/// A stored photo's new annotation, handed back by the edit sheet's save (`None` clears it).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhotoAnnotation {
+    pub photo_id: String,
+    #[serde(default)]
+    pub annotation: Option<Annotation>,
 }
 
 #[derive(Debug)]

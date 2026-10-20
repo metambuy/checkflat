@@ -101,7 +101,7 @@ pub fn photo(data: &Path, w: u32, h: u32, taken_at: &str) -> PhotoInput {
 
 pub fn photo_seeded(data: &Path, w: u32, h: u32, taken_at: &str, seed: u32) -> PhotoInput {
     let s = photos::stage(data, Cursor::new(jpeg_seeded(w, h, seed)), 0).unwrap();
-    PhotoInput { token: s.token, taken_at: taken_at.to_string() }
+    PhotoInput { token: s.token, taken_at: taken_at.to_string(), annotation: None }
 }
 
 pub fn observation(conn: &Connection, data: &Path, plan: &Plan, x: f64, y: f64, description: &str, photos: &[PhotoInput]) -> String {

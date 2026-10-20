@@ -22,7 +22,7 @@ pub fn jpeg(w: u32, h: u32) -> Vec<u8> {
 /// Stage a small photo in `data` and return what the observation save takes.
 pub fn staged_photo(data: &Path) -> PhotoInput {
     let s = photos::stage(data, std::io::Cursor::new(jpeg(64, 48)), 0).unwrap();
-    PhotoInput { token: s.token, taken_at: s.taken_at }
+    PhotoInput { token: s.token, taken_at: s.taken_at, annotation: None }
 }
 
 /// One freshly staged photo for the database in `conn`.

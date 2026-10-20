@@ -115,5 +115,15 @@
   "report.no_snapshot": "Planta não preparada neste dispositivo",
   "report.no_observations": "Sem observações em aberto.",
   "error.report": "Não foi possível gerar o relatório: {message}",
-  "dev.seed": "Semear observações"
+  "dev.seed": "Semear observações",
+  "annotate.title": "Anotar foto",
+  "annotate.open": "Anotar foto {n}",
+  "annotate.ellipse": "Elipse",
+  "annotate.arrow": "Seta",
+  "annotate.freehand": "Mão livre",
+  "annotate.undo": "Anular",
+  "annotate.delete": "Apagar forma",
+  "annotate.done": "Concluir",
+  "annotate.hint": "Desenhe com um dedo. Toque numa forma para a selecionar.",
+  "annotate.limit": "Limite do desenho atingido — anule ou apague uma forma"
 }
