@@ -204,7 +204,7 @@ export const api = {
   /** Writes the project's report PDF. `timeZone`: IANA name of the device's zone; `utcOffsetMin`: its current offset (fallback). */
   generateReport: (projectId: string, lang: "en" | "pt", timeZone: string, utcOffsetMin: number) =>
     invoke<ReportResult>("generate_report", { projectId, lang, timeZone, utcOffsetMin }),
-  /** Debug builds only (the command does not exist in release builds): seeds `count` observations on a plan. */
+  /** Debug builds only (the command does not exist in release builds, except local `dev-seed` ones): seeds `count` observations on a plan. */
   devSeedObservations: (planId: string, count: number) => invoke<number>("dev_seed_observations", { planId, count }),
 };
 

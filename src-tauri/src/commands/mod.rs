@@ -1,4 +1,4 @@
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "dev-seed"))]
 pub mod dev;
 pub mod fractions;
 pub mod observations;

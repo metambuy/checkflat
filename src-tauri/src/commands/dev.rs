@@ -1,5 +1,6 @@
 //! Debug-build-only helpers for the Dev screen. This module is compiled out of release builds
-//! (`#[cfg(debug_assertions)]` in `commands/mod.rs` and on the handler list in `lib.rs`).
+//! (`#[cfg(any(debug_assertions, feature = "dev-seed"))]` in `commands/mod.rs` and on the handler
+//! list in `lib.rs`); the `dev-seed` feature exists for local measurement builds only (D-026).
 use std::io::Cursor;
 
 use checkflat_core::photos::{self, PhotoInput};

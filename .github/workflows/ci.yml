@@ -123,6 +123,13 @@ jobs:
           mkdir -p out
           cp src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk "out/checkflat-$VERSION-$VERSION_CODE-arm64.apk"
 
+      # The Dev → Seed command exists only in debug builds and local `dev-seed` measurement builds (D-026).
+      - name: No dev-seed code in the release APK
+        run: |
+          APK=$(ls out/*.apk)
+          N=$(unzip -p "$APK" 'lib/arm64-v8a/*.so' | grep -a -c dev_seed_observations || true)
+          [ "$N" = "0" ] || { echo "::error::dev_seed_observations found in $APK"; exit 1; }
+
       # The APK byte size is the instrument for size decisions (D-004, D-024); the artifact zip is smaller.
       - name: Verify signature and version
         run: |

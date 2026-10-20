@@ -34,7 +34,9 @@ pub async fn generate_report(app: AppHandle, project_id: String, lang: String, t
     let lang = Lang::parse(&lang);
     let pid = project_id.clone();
     let source = run_db_with(app.clone(), move |c, dir| report::collect(c, dir, &pid, lang, &time_zone, utc_offset_min)).await?;
-    run_fs_with(app, move |dir| {
+    #[cfg(feature = "dev-seed")]
+    let app_out = app.clone();
+    let result = run_fs_with(app, move |dir| {
         let input = report::prepare(dir, source)?;
         let rendered = report::render(&input)?;
         let dest = paths::write_report(dir, &project_id, &clock::now_compact(), &rendered.pdf)?;
@@ -48,5 +50,17 @@ pub async fn generate_report(app: AppHandle, project_id: String, lang: String, t
             total_ms: started.elapsed().as_millis() as u64,
         })
     })
-    .await
+    .await?;
+    // Local measurement builds (D-026): a release build is not debuggable, so `run-as` cannot read
+    // `reports/`; a copy in the Documents dir can be pulled with adb. Runs after `total_ms`.
+    #[cfg(feature = "dev-seed")]
+    {
+        let src = std::path::Path::new(&result.path);
+        if let (Ok(out), Some(name)) = (crate::devlog::log_dir(&app_out), src.file_name()) {
+            if let Err(e) = std::fs::copy(src, out.join(name)) {
+                log::warn!("dev-seed: report copy failed: {e}");
+            }
+        }
+    }
+    Ok(result)
 }
