@@ -60,6 +60,8 @@ export function parseDraft(raw: string | null | undefined, now: number): SheetDr
   if (!Array.isArray(d.staged)) return null;
   // Annotations (Sprint 4) are optional in the draft — an older draft has none — and an invalid
   // one drops the shapes, never the draft: a photo is worth more than what was drawn on it.
+  // For a stored photo, `null` is an explicit clear and stays; an edit that does not parse is
+  // dropped altogether, so Save leaves what is stored instead of wiping it.
   const staged: StagedPhoto[] = [];
   for (const p of d.staged) {
     if (typeof p !== "object" || p === null || !isStr(p.token) || !isStr(p.path) || !isStr(p.takenAt)) return null;
@@ -68,7 +70,10 @@ export function parseDraft(raw: string | null | undefined, now: number): SheetDr
   const annotations: Record<string, Annotation | null> = {};
   if (d.annotations !== undefined) {
     if (typeof d.annotations !== "object" || d.annotations === null || Array.isArray(d.annotations)) return null;
-    for (const [id, a] of Object.entries(d.annotations)) annotations[id] = parseAnnotation(a);
+    for (const [id, a] of Object.entries(d.annotations)) {
+      const parsed = a === null ? null : parseAnnotation(a);
+      if (a === null || parsed) annotations[id] = parsed;
+    }
   }
   return {
     v: 1,
