@@ -1,16 +1,11 @@
-// Minimal screen state (no router): projects list, one project, its settings, one plan, dev screen.
+// Minimal screen state (no router): projects list, one project, its settings, one plan, the
+// observation list, dev screen. The screens and `parent()` live in routes.ts (testable without runes).
 // Back (Android system back, Escape on desktop) first asks the handlers pushed by whatever sits on
 // top of the screen (a full-screen editor), newest first, then the screen's own handler (e.g. the
 // plan screen cancels a draft pin); otherwise it goes up one level.
-import type { SheetDraft } from "./sheet/draft";
+import { parent, type Screen } from "./routes";
 
-export type Screen =
-  | { name: "projects" }
-  | { name: "project"; id: string }
-  | { name: "projectSettings"; id: string }
-  /** `recovered`: an unsaved observation sheet restored after the app was killed (sheet/draft.ts). */
-  | { name: "plan"; projectId: string; planId: string; recovered?: SheetDraft }
-  | { name: "dev" };
+export type { Screen } from "./routes";
 
 const nav = $state<{ screen: Screen }>({ screen: { name: "projects" } });
 let screenHandler: (() => boolean) | null = null;
@@ -23,16 +18,6 @@ export function go(s: Screen): void {
   screenHandler = null;
   stacked = [];
   nav.screen = s;
-}
-
-export function parent(s: Screen): Screen | null {
-  switch (s.name) {
-    case "projects": return null;
-    case "project": return { name: "projects" };
-    case "projectSettings": return { name: "project", id: s.id };
-    case "plan": return { name: "project", id: s.projectId };
-    case "dev": return { name: "projects" };
-  }
 }
 
 /** The current screen may consume Back (return true). Cleared on navigation. */

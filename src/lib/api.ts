@@ -83,6 +83,12 @@ export interface Observation {
   createdAt: string;
   updatedAt: string;
 }
+/** A row of the observation list: the observation, its plan's title and its first photo with the shapes drawn on it (`thumbPath` is null for an observation without a photo). */
+export interface ObservationRow extends Observation {
+  planTitle: string;
+  thumbPath: string | null;
+  thumbAnnotation: Annotation | null;
+}
 /** A stored photo; `path` is absolute, for convertFileSrc (asset protocol, `$APPDATA/projects/**`). */
 export interface Photo {
   id: string;
@@ -186,6 +192,8 @@ export const api = {
   deletePlan: (id: string) => invoke<void>("delete_plan", { id }),
   getPlan: (id: string) => invoke<Plan>("get_plan", { id }),
   listPins: (planId: string) => invoke<Observation[]>("list_pins", { planId }),
+  /** The project's open observations, newest first (the report's order). */
+  listObservations: (projectId: string) => invoke<ObservationRow[]>("list_observations", { projectId }),
   /** Save of the observation sheet: adds the fraction if new and takes the next number. */
   /** One to three photos are required (`photo_required` / `photo_limit`, D-025). */
   createObservation: (planId: string, x: number, y: number, fraction: string, description: string, photos: PhotoInput[]) =>
