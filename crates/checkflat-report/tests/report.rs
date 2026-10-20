@@ -2,9 +2,10 @@ mod common;
 
 use std::path::Path;
 
+use checkflat_core::annotation::{Annotation, Shape};
 use checkflat_core::i18n::Lang;
 use checkflat_core::refs::{Scope, DEFAULT_TEMPLATE};
-use checkflat_core::repo::projects;
+use checkflat_core::repo::{photos, projects};
 use checkflat_core::rusqlite::Connection;
 use checkflat_report::{collect, prepare, render, ReportInput};
 
@@ -96,6 +97,35 @@ fn report_has_a_cover_and_the_observations_in_a_continuous_list_newest_first() {
     let r = render(&en).unwrap();
     save("report-en.pdf", &r.pdf);
     assert_eq!(r.pages, 3);
+}
+
+/// Sprint 4 (M6): a photo's stored shapes are drawn on its report copy; a photo without shapes
+/// that is already small is embedded byte for byte as stored.
+#[test]
+fn annotated_photos_reach_the_report_drawn() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = common::open(data);
+    let pid = common::project(&conn, "P", "");
+    let a1 = common::plan(&conn, data, &pid, "Piso 1", common::A1);
+    let mut drawn = common::photo(data, 1600, 1200, "2026-10-20T10:00:00.000Z");
+    drawn.annotation = Some(Annotation::new(vec![Shape::Ellipse { cx: 0.5, cy: 0.5, rx: 0.25, ry: 0.25 }]));
+    let plain = common::photo(data, 640, 480, "2026-10-20T11:00:00.000Z");
+    let obs = common::observation(&conn, data, &a1, 0.3, 0.6, "d", &[drawn, plain]);
+    let input = prepare(data, collect(&conn, data, &pid, Lang::En, "Europe/Lisbon", 60).unwrap()).unwrap();
+    let file = |name: &str| input.files.iter().find(|(f, _)| f == name).map(|(_, b)| b.clone()).unwrap_or_else(|| panic!("{name} missing"));
+
+    let img = image::load_from_memory(&file("img/photo-0-0.jpg")).unwrap().to_rgb8();
+    assert_eq!(img.dimensions(), (800, 600));
+    let ring = img.get_pixel(200, 300);
+    assert!(ring[0] > 180 && ring[1] < 60 && ring[2] < 60, "red on the ring: {ring:?}");
+    let centre = img.get_pixel(400, 300);
+    assert!(centre[1] > 90, "the fixture's own colour inside the ring: {centre:?}");
+
+    let stored = photos::list_for_observation(&conn, &obs).unwrap()[1].file_path.resolve(data);
+    assert_eq!(file("img/photo-0-1.jpg"), std::fs::read(stored).unwrap(), "no shapes, ≤ 800 px: embedded as stored");
+    assert_eq!(input.stats.photos, 2);
+    assert_eq!(input.stats.skipped_photos, 0);
 }
 
 #[test]
