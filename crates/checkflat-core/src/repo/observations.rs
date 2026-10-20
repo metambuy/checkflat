@@ -8,7 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::models::{Observation, Project};
 use crate::paths::RelPath;
-use crate::photos::PhotoInput;
+use crate::photos::{PhotoAnnotation, PhotoInput};
 use crate::refs::{self, Scope, Template};
 use crate::repo::{fractions, photos, plans, projects};
 use crate::{clock, ids, CoreError, Result};
@@ -186,9 +186,9 @@ pub fn create_observation(
 }
 
 /// Save of the sheet in edit mode: the description and the photos (add the staged ones, remove
-/// the listed ids). The fraction, and so the ref, never change here. The observation must end up
-/// with one to [`MAX_PHOTOS`] photos; an observation migrated from Sprint 3a (none) satisfies the
-/// minimum by adding one.
+/// the listed ids, set the annotations of kept ones). The fraction, and so the ref, never change
+/// here. The observation must end up with one to [`MAX_PHOTOS`] photos; an observation migrated
+/// from Sprint 3a (none) satisfies the minimum by adding one.
 /// One transaction: on any error the rows are unchanged and staged files are back in `tmp/`;
 /// removed files are deleted after the commit (row first, D-010).
 pub fn update_observation(
@@ -198,6 +198,7 @@ pub fn update_observation(
     description: &str,
     new_photos: &[PhotoInput],
     remove_ids: &[String],
+    annotations: &[PhotoAnnotation],
 ) -> Result<Observation> {
     let obs = get(conn, id)?;
     let existing = photos::list_for_observation(conn, id)?;
@@ -211,6 +212,7 @@ pub fn update_observation(
         }
     }
     check_photo_count(existing.len() - removed.len() + new_photos.len())?;
+    let annotations = photos::prepare_annotations(annotations, &existing, &removed)?;
     let now = clock::now_iso();
     let tx = conn.unchecked_transaction()?;
     tx.execute(
@@ -221,9 +223,9 @@ pub fn update_observation(
         tx.execute("DELETE FROM photo WHERE id = ?1", [&p.id])?;
     }
     let moved = photos::attach(&tx, data_dir, &obs.project_id, id, new_photos, &now)?;
-    if let Err(e) = tx.commit() {
+    if let Err(e) = photos::set_annotations(&tx, id, &annotations).and_then(|()| Ok(tx.commit()?)) {
         photos::revert(&moved);
-        return Err(e.into());
+        return Err(e);
     }
     let files: Vec<RelPath> = removed.iter().map(|p| p.file_path.clone()).collect();
     photos::remove_files(data_dir, &files);

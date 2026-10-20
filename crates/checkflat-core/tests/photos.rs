@@ -3,9 +3,10 @@ mod common;
 use std::io::Cursor;
 use std::path::Path;
 
+use checkflat_core::annotation::{self, Annotation, Shape};
 use checkflat_core::models::Plan;
 use checkflat_core::paths::{self, staging_photo};
-use checkflat_core::photos::{self, PhotoInput};
+use checkflat_core::photos::{self, PhotoAnnotation, PhotoInput};
 use checkflat_core::repo::{observations, photos as photo_repo, plans, projects};
 use checkflat_core::rusqlite::Connection;
 use checkflat_core::{clock, db, pdf, CoreError};
@@ -145,8 +146,8 @@ fn save_moves_the_photo_into_the_project_and_records_it() {
     let a = stage(dir.path(), jpeg_with_exif(64, 48, None, Some("2026:10:05 14:03:09"), Some("+00:00")), 0).unwrap();
     let b = stage(dir.path(), common::jpeg(64, 48), 0).unwrap();
     let input = [
-        PhotoInput { token: a.token.clone(), taken_at: a.taken_at.clone() },
-        PhotoInput { token: b.token.clone(), taken_at: "not a date".into() },
+        PhotoInput { token: a.token.clone(), taken_at: a.taken_at.clone(), annotation: None },
+        PhotoInput { token: b.token.clone(), taken_at: "not a date".into(), annotation: None },
     ];
     let obs = save(&conn, dir.path(), &plan, &input).unwrap();
 
@@ -158,13 +159,9 @@ fn save_moves_the_photo_into_the_project_and_records_it() {
         assert_eq!(r.file_path, paths::photo_file(&plan.project_id, &r.id));
         assert!(r.file_path.resolve(dir.path()).is_file());
         assert!(r.visit_id.is_none());
-        assert!(r.annotation_json.is_none(), "nothing drawn yet (Sprint 4)");
+        assert!(r.annotation_json.is_none(), "nothing drawn: NULL");
     }
     assert!(tmp_files(dir.path()).is_empty(), "staged files were moved, not copied");
-    // The annotation column (v1 schema) reads back once Sprint 4 writes it.
-    conn.execute("UPDATE photo SET annotation_json = '{\"shapes\":[]}' WHERE id = ?1", [&rows[0].id]).unwrap();
-    let rows = photo_repo::list_for_observation(&conn, &obs.id).unwrap();
-    assert_eq!(rows[0].annotation_json.as_deref(), Some("{\"shapes\":[]}"));
 }
 
 #[test]
@@ -175,7 +172,7 @@ fn a_photo_is_required_and_a_failed_save_changes_nothing() {
 
     // The second token has no staged file: the first photo goes back to staging, no row, no number used.
     let good = common::staged_photo(dir.path());
-    let missing = PhotoInput { token: checkflat_core::ids::new_id(), taken_at: clock::now_iso() };
+    let missing = PhotoInput { token: checkflat_core::ids::new_id(), taken_at: clock::now_iso(), annotation: None };
     let err = save(&conn, dir.path(), &plan, &[good.clone(), missing]).unwrap_err();
     assert!(matches!(err, CoreError::NotFound), "{err:?}");
     assert!(staging_photo(&good.token).resolve(dir.path()).is_file(), "photo returned to staging");
@@ -186,7 +183,7 @@ fn a_photo_is_required_and_a_failed_save_changes_nothing() {
     assert!(std::fs::read_dir(photos_dir).map(|d| d.count()).unwrap_or(0) == 0);
 
     // A token that is not a UUID never touches the file system.
-    let bad = PhotoInput { token: "../../etc/passwd".into(), taken_at: clock::now_iso() };
+    let bad = PhotoInput { token: "../../etc/passwd".into(), taken_at: clock::now_iso(), annotation: None };
     assert!(matches!(save(&conn, dir.path(), &plan, &[bad]), Err(CoreError::Validation(_))));
 
     // The same staged photo can then be saved.
@@ -214,14 +211,14 @@ fn at_most_three_photos_on_create_and_edit() {
     assert_eq!(tmp_files(dir.path()).len(), 1);
 
     // Edit: a fourth is refused, rows and files unchanged, the staged file still in tmp/.
-    let err = observations::update_observation(&conn, dir.path(), &obs.id, "more", &four[3..], &[]).unwrap_err();
+    let err = observations::update_observation(&conn, dir.path(), &obs.id, "more", &four[3..], &[], &[]).unwrap_err();
     assert!(matches!(err, CoreError::PhotoLimit { max: 3 }), "{err:?}");
     assert_eq!(observations::get(&conn, &obs.id).unwrap().description, "d");
     assert_eq!(photo_ids(&conn, &obs.id), ids);
     assert!(staging_photo(&four[3].token).resolve(dir.path()).is_file());
 
     // Edit: one out, one in keeps three.
-    let edited = observations::update_observation(&conn, dir.path(), &obs.id, "swapped", &four[3..], &ids[..1]).unwrap();
+    let edited = observations::update_observation(&conn, dir.path(), &obs.id, "swapped", &four[3..], &ids[..1], &[]).unwrap();
     assert_eq!(edited.description, "swapped");
     let now = photo_ids(&conn, &obs.id);
     assert_eq!(now.len(), 3);
@@ -277,14 +274,14 @@ fn edit_changes_description_and_photos_but_never_drops_the_last_photo() {
     let first_file = photo_repo::list_for_observation(&conn, &obs.id).unwrap()[0].file_path.resolve(dir.path());
 
     // Removing the only photo without adding one is refused and changes nothing.
-    let err = observations::update_observation(&conn, dir.path(), &obs.id, "new text", &[], &first).unwrap_err();
+    let err = observations::update_observation(&conn, dir.path(), &obs.id, "new text", &[], &first, &[]).unwrap_err();
     assert!(matches!(err, CoreError::PhotoRequired), "{err:?}");
     assert_eq!(observations::get(&conn, &obs.id).unwrap().description, "d");
     assert!(first_file.is_file());
 
     // Swap: add one, remove the old one, new description (trimmed); ref and position untouched.
     let added = common::staged_photo(dir.path());
-    let edited = observations::update_observation(&conn, dir.path(), &obs.id, "  new text ", &[added], &first).unwrap();
+    let edited = observations::update_observation(&conn, dir.path(), &obs.id, "  new text ", &[added], &first, &[]).unwrap();
     assert_eq!(edited.description, "new text");
     assert_eq!((edited.display_ref.as_str(), edited.seq, edited.x_norm), (obs.display_ref.as_str(), obs.seq, obs.x_norm));
     assert!(edited.updated_at > obs.updated_at);
@@ -303,7 +300,7 @@ fn edit_rejects_foreign_photos_and_rolls_back_on_a_missing_token() {
     let b = save(&conn, dir.path(), &plan, &common::one_photo(&conn)).unwrap();
     let b_photo = photo_ids(&conn, &b.id);
     assert!(matches!(
-        observations::update_observation(&conn, dir.path(), &a.id, "x", &[], &b_photo),
+        observations::update_observation(&conn, dir.path(), &a.id, "x", &[], &b_photo, &[]),
         Err(CoreError::Validation(_))
     ));
 
@@ -311,15 +308,15 @@ fn edit_rejects_foreign_photos_and_rolls_back_on_a_missing_token() {
     // photo back in staging.
     let a_photo = photo_ids(&conn, &a.id);
     let good = common::staged_photo(dir.path());
-    let missing = PhotoInput { token: checkflat_core::ids::new_id(), taken_at: clock::now_iso() };
-    let err = observations::update_observation(&conn, dir.path(), &a.id, "changed", &[good.clone(), missing], &a_photo).unwrap_err();
+    let missing = PhotoInput { token: checkflat_core::ids::new_id(), taken_at: clock::now_iso(), annotation: None };
+    let err = observations::update_observation(&conn, dir.path(), &a.id, "changed", &[good.clone(), missing], &a_photo, &[]).unwrap_err();
     assert!(matches!(err, CoreError::NotFound), "{err:?}");
     assert_eq!(photo_ids(&conn, &a.id), a_photo, "removal rolled back");
     assert_eq!(observations::get(&conn, &a.id).unwrap().description, "d");
     assert!(photo_repo::list_for_observation(&conn, &a.id).unwrap()[0].file_path.resolve(dir.path()).is_file());
     assert!(staging_photo(&good.token).resolve(dir.path()).is_file());
     assert!(matches!(
-        observations::update_observation(&conn, dir.path(), "missing", "x", &[], &[]),
+        observations::update_observation(&conn, dir.path(), "missing", "x", &[], &[], &[]),
         Err(CoreError::NotFound)
     ));
 }
@@ -334,10 +331,90 @@ fn an_observation_migrated_without_photos_opens_and_gets_its_first_photo_on_edit
     assert_eq!(observations::list_for_plan(&conn, &plan.id).unwrap().len(), 1);
     assert!(photo_repo::list_for_observation(&conn, "legacy").unwrap().is_empty());
     // Saving without a photo is refused; with one it works.
-    assert!(matches!(observations::update_observation(&conn, dir.path(), "legacy", "t", &[], &[]), Err(CoreError::PhotoRequired)));
-    let o = observations::update_observation(&conn, dir.path(), "legacy", "t", &common::one_photo(&conn), &[]).unwrap();
+    assert!(matches!(observations::update_observation(&conn, dir.path(), "legacy", "t", &[], &[], &[]), Err(CoreError::PhotoRequired)));
+    let o = observations::update_observation(&conn, dir.path(), "legacy", "t", &common::one_photo(&conn), &[], &[]).unwrap();
     assert_eq!(o.description, "t");
     assert_eq!(photo_ids(&conn, "legacy").len(), 1);
+}
+
+fn ellipse() -> Annotation {
+    Annotation::new(vec![Shape::Ellipse { cx: 0.5, cy: 0.5, rx: 0.2, ry: 0.1 }])
+}
+
+/// Sprint 4 (M6): the shapes drawn on a photo are saved with the sheet — on create through
+/// `PhotoInput`, on edit through `PhotoAnnotation` — and read back as the same shapes.
+#[test]
+fn annotations_are_stored_on_create_and_changed_on_edit() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let mut a = common::staged_photo(dir.path());
+    a.annotation = Some(ellipse());
+    let b = common::staged_photo(dir.path());
+    let obs = save(&conn, dir.path(), &plan, &[a, b]).unwrap();
+    let rows = photo_repo::list_for_observation(&conn, &obs.id).unwrap();
+    assert_eq!(rows[0].annotation_json.as_deref(), Some(r#"{"v":1,"shapes":[{"t":"ellipse","cx":0.5,"cy":0.5,"rx":0.2,"ry":0.1}]}"#));
+    assert_eq!(annotation::parse_stored(rows[0].annotation_json.as_deref()), Some(ellipse()));
+    assert!(rows[1].annotation_json.is_none(), "nothing drawn: NULL");
+
+    // Edit: draw on the second, clear the first; description and photo set untouched otherwise.
+    let arrow = Annotation::new(vec![Shape::Arrow { x1: 0.1, y1: 0.1, x2: 0.9, y2: 0.9 }]);
+    let changes = [
+        PhotoAnnotation { photo_id: rows[1].id.clone(), annotation: Some(arrow.clone()) },
+        PhotoAnnotation { photo_id: rows[0].id.clone(), annotation: None },
+    ];
+    let edited = observations::update_observation(&conn, dir.path(), &obs.id, "d", &[], &[], &changes).unwrap();
+    assert!(edited.updated_at > obs.updated_at);
+    let rows = photo_repo::list_for_observation(&conn, &obs.id).unwrap();
+    assert!(rows[0].annotation_json.is_none());
+    assert_eq!(annotation::parse_stored(rows[1].annotation_json.as_deref()), Some(arrow));
+    // An annotation without shapes clears as well.
+    let empty = [PhotoAnnotation { photo_id: rows[1].id.clone(), annotation: Some(Annotation::new(vec![])) }];
+    observations::update_observation(&conn, dir.path(), &obs.id, "d", &[], &[], &empty).unwrap();
+    assert!(photo_repo::list_for_observation(&conn, &obs.id).unwrap()[1].annotation_json.is_none());
+}
+
+#[test]
+fn invalid_or_foreign_annotations_are_refused_and_change_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let bad = Annotation::new(vec![Shape::Ellipse { cx: 1.5, cy: 0.5, rx: 0.2, ry: 0.1 }]);
+
+    // Create: the good first photo goes back to staging, no row, no number used.
+    let good = common::staged_photo(dir.path());
+    let mut wrong = common::staged_photo(dir.path());
+    wrong.annotation = Some(bad.clone());
+    let err = save(&conn, dir.path(), &plan, &[good.clone(), wrong]).unwrap_err();
+    assert!(matches!(err, CoreError::Validation(ref m) if m.starts_with("annotation: ")), "{err:?}");
+    assert_eq!(common::count(&conn, "observation"), 0);
+    assert_eq!(projects::get(&conn, &plan.project_id).unwrap().next_seq, 1, "no number consumed");
+    assert_eq!(tmp_files(dir.path()).len(), 2, "both staged files back in tmp/");
+
+    // Edit: an invalid annotation, or another observation's photo id → refused before anything is touched.
+    let obs = save(&conn, dir.path(), &plan, &[good]).unwrap();
+    let other = save(&conn, dir.path(), &plan, &common::one_photo(&conn)).unwrap();
+    let mine = photo_ids(&conn, &obs.id);
+    let theirs = photo_ids(&conn, &other.id);
+    let added = common::staged_photo(dir.path());
+    for changes in [
+        vec![PhotoAnnotation { photo_id: mine[0].clone(), annotation: Some(bad.clone()) }],
+        vec![PhotoAnnotation { photo_id: theirs[0].clone(), annotation: Some(ellipse()) }],
+    ] {
+        let err = observations::update_observation(&conn, dir.path(), &obs.id, "changed", &[added.clone()], &[], &changes).unwrap_err();
+        assert!(matches!(err, CoreError::Validation(_)), "{err:?}");
+        assert_eq!(observations::get(&conn, &obs.id).unwrap().description, "d");
+        assert_eq!(photo_ids(&conn, &obs.id), mine);
+        assert!(staging_photo(&added.token).resolve(dir.path()).is_file(), "staged file untouched");
+    }
+    assert!(photo_repo::list_for_observation(&conn, &other.id).unwrap()[0].annotation_json.is_none());
+
+    // A change for a photo that is removed in the same save is dropped, not a foreign id.
+    let changes = [PhotoAnnotation { photo_id: mine[0].clone(), annotation: Some(ellipse()) }];
+    let edited = observations::update_observation(&conn, dir.path(), &obs.id, "swapped", &[added], &mine, &changes).unwrap();
+    assert_eq!(edited.description, "swapped");
+    let rows = photo_repo::list_for_observation(&conn, &obs.id).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_ne!(rows[0].id, mine[0]);
+    assert!(rows[0].annotation_json.is_none());
 }
 
 #[test]

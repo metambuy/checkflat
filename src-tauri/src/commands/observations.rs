@@ -1,7 +1,7 @@
 //! Pins (observations placed on a plan). `create_observation` is the save of the observation
 //! sheet; the ref is computed in the core and returned as `ref` / `marker`.
 use checkflat_core::models::Observation;
-use checkflat_core::photos::PhotoInput;
+use checkflat_core::photos::{PhotoAnnotation, PhotoInput};
 use checkflat_core::repo::{observations, projects};
 use tauri::AppHandle;
 
@@ -26,7 +26,8 @@ pub async fn create_observation(
     run_db(app, move |c, dir| observations::create_observation(c, dir, &plan_id, x, y, &fraction, &description, &photos)).await
 }
 
-/// Edit mode of the sheet: description and photos only (fraction and ref are fixed).
+/// Edit mode of the sheet: description, photos and the kept photos' annotations (fraction and ref
+/// are fixed).
 #[tauri::command]
 pub async fn update_observation(
     app: AppHandle,
@@ -34,8 +35,9 @@ pub async fn update_observation(
     description: String,
     photos: Vec<PhotoInput>,
     remove_photo_ids: Vec<String>,
+    annotations: Vec<PhotoAnnotation>,
 ) -> AppResult<Observation> {
-    run_db(app, move |c, dir| observations::update_observation(c, dir, &id, &description, &photos, &remove_photo_ids)).await
+    run_db(app, move |c, dir| observations::update_observation(c, dir, &id, &description, &photos, &remove_photo_ids, &annotations)).await
 }
 
 /// The ref the next observation in `fraction` would get with the project's stored settings.

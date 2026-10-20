@@ -78,7 +78,7 @@ pub async fn dev_seed_observations(app: AppHandle, plan_id: String, count: u32) 
                 .map(|j| {
                     let src = &bytes[((i * 3 + j) as usize) % bytes.len()];
                     let s = photos::stage(dir, Cursor::new(unique_copy(src, i * 3 + j)?), 0)?;
-                    Ok(PhotoInput { token: s.token, taken_at: times[j as usize].to_string() })
+                    Ok(PhotoInput { token: s.token, taken_at: times[j as usize].to_string(), annotation: None })
                 })
                 .collect::<Result<_, CoreError>>()?;
             let text = format!("{} {}", TEXTS[(i as usize) % TEXTS.len()], i + 1);

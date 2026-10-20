@@ -7,9 +7,10 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, Row};
 
+use crate::annotation::to_column;
 use crate::models::Photo;
 use crate::paths::{photo_file, RelPath};
-use crate::photos::{staged_path, PhotoInput};
+use crate::photos::{staged_path, PhotoAnnotation, PhotoInput};
 use crate::{clock, ids, CoreError, Result};
 
 fn row_to_photo(r: &Row<'_>) -> rusqlite::Result<Photo> {
@@ -35,9 +36,10 @@ pub fn list_for_observation(conn: &Connection, observation_id: &str) -> Result<V
 /// A staged file moved into the project: `(destination, where it came from)`.
 pub type Moved = Vec<(PathBuf, PathBuf)>;
 
-/// Move each staged photo into `projects/<project_id>/photos/` and insert its row. Must run inside
-/// the transaction that saves the observation. On error every file already moved goes back to
-/// staging; if the caller's commit fails afterwards it must call [`revert`] with the result.
+/// Move each staged photo into `projects/<project_id>/photos/` and insert its row (with its
+/// annotation, validated here). Must run inside the transaction that saves the observation. On
+/// error every file already moved goes back to staging; if the caller's commit fails afterwards it
+/// must call [`revert`] with the result.
 pub fn attach(
     tx: &Connection,
     data_dir: &Path,
@@ -53,6 +55,7 @@ pub fn attach(
             if !staged.is_file() {
                 return Err(CoreError::NotFound);
             }
+            let annotation_json = to_column(p.annotation.as_ref())?;
             let id = ids::new_id();
             let rel = photo_file(project_id, &id);
             let dest = rel.resolve(data_dir);
@@ -61,8 +64,8 @@ pub fn attach(
             moved.push((dest, staged));
             let taken_at = clock::parse_iso(&p.taken_at).map(clock::format_iso).unwrap_or_else(|| now.to_string());
             tx.execute(
-                "INSERT INTO photo(id, observation_id, file_path, taken_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, observation_id, rel.as_str(), taken_at, now],
+                "INSERT INTO photo(id, observation_id, file_path, taken_at, annotation_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, observation_id, rel.as_str(), taken_at, annotation_json, now],
             )?;
         }
         Ok(())
@@ -74,6 +77,34 @@ pub fn attach(
             Err(e)
         }
     }
+}
+
+/// The edit sheet's annotation changes, validated and serialised for the column before anything is
+/// touched: every id must be one of `existing` (else `Validation`, like a foreign removal); ids
+/// in `removed` are dropped (the photo goes anyway).
+pub fn prepare_annotations(
+    annotations: &[PhotoAnnotation],
+    existing: &[Photo],
+    removed: &[&Photo],
+) -> Result<Vec<(String, Option<String>)>> {
+    annotations
+        .iter()
+        .filter(|a| !removed.iter().any(|r| r.id == a.photo_id))
+        .map(|a| {
+            if !existing.iter().any(|p| p.id == a.photo_id) {
+                return Err(CoreError::Validation(format!("photo {} does not belong to this observation", a.photo_id)));
+            }
+            Ok((a.photo_id.clone(), to_column(a.annotation.as_ref())?))
+        })
+        .collect()
+}
+
+/// Writes what [`prepare_annotations`] produced, inside the save transaction.
+pub fn set_annotations(tx: &Connection, observation_id: &str, prepared: &[(String, Option<String>)]) -> Result<()> {
+    for (id, json) in prepared {
+        tx.execute("UPDATE photo SET annotation_json = ?3 WHERE id = ?1 AND observation_id = ?2", params![id, observation_id, json])?;
+    }
+    Ok(())
 }
 
 /// Put moved files back into staging (best effort; a failure leaves an orphan for the sweep).
