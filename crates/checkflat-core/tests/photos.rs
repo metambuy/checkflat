@@ -337,6 +337,31 @@ fn an_observation_migrated_without_photos_opens_and_gets_its_first_photo_on_edit
     assert_eq!(photo_ids(&conn, "legacy").len(), 1);
 }
 
+/// Sprint 4b (M7): one query gives the observation list its thumbnail — the photo the sheet lists
+/// first — for every observation of the project and nothing from another project.
+#[test]
+fn first_for_project_gives_each_observations_first_photo_and_stays_inside_the_project() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let three = (0..3).map(|_| common::staged_photo(dir.path())).collect::<Vec<_>>();
+    let a = save(&conn, dir.path(), &plan, &three).unwrap();
+    let b = save(&conn, dir.path(), &plan, &[common::staged_photo(dir.path())]).unwrap();
+    common::insert_observation(&conn, "legacy", &plan.project_id, &plan.id, 9, None).unwrap(); // migrated, no photo
+
+    let other = projects::create(&conn, "Other", "").unwrap();
+    let staged = plans::stage(dir.path(), Cursor::new(pdf::make_pdf(&[(2384.0, 1684.0)], 0))).unwrap();
+    let other_plan = plans::import(&conn, dir.path(), &other.id, &staged.token, "B").unwrap();
+    let c = save(&conn, dir.path(), &other_plan, &[common::staged_photo(dir.path())]).unwrap();
+
+    let first = photo_repo::first_for_project(&conn, &plan.project_id).unwrap();
+    assert_eq!(first.len(), 2, "the observation without a photo has no entry, the other project's is not here");
+    assert_eq!(first[&a.id], photo_repo::list_for_observation(&conn, &a.id).unwrap()[0]);
+    assert_eq!(first[&b.id], photo_repo::list_for_observation(&conn, &b.id).unwrap()[0]);
+    assert!(!first.contains_key("legacy") && !first.contains_key(&c.id));
+    assert_eq!(photo_repo::first_for_project(&conn, &other.id).unwrap().len(), 1);
+    assert!(photo_repo::first_for_project(&conn, "nobody").unwrap().is_empty());
+}
+
 fn ellipse() -> Annotation {
     Annotation::new(vec![Shape::Ellipse { cx: 0.5, cy: 0.5, rx: 0.2, ry: 0.1 }])
 }
