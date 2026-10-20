@@ -170,8 +170,8 @@
 </script>
 
 <div class="backdrop" role="presentation">
-  <!-- Escape is marked handled so the plan screen's Back does not act on the same key press. -->
-  <div class="dialog sheet" role="dialog" aria-modal="true" tabindex="-1" onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); if (!saving) oncancel(); } }}>
+  <!-- Escape is marked handled so the plan screen's Back does not act on the same key press. While the annotation editor (a sibling, not a child) is open the sheet is inert: Tab cannot reach it and its own Escape handler stays out of the way. -->
+  <div class="dialog sheet" role="dialog" aria-modal="true" tabindex="-1" inert={annotating !== null} onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); if (!saving) oncancel(); } }}>
   <form onsubmit={submit}>
     <h2>{editing ? t("sheet.title_edit") : t("sheet.title")}</h2>
     <ErrorBanner error={error ?? photoError} ondismiss={() => { ondismiss(); photoError = null; }} />
