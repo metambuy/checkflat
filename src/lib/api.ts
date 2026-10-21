@@ -83,11 +83,22 @@ export interface Observation {
   createdAt: string;
   updatedAt: string;
 }
-/** A row of the observation list: the observation, its plan's title and its first photo with the shapes drawn on it (`thumbPath` is null for an observation without a photo). */
+/**
+ * A row of the observation list: the observation, its plan's title and its first photo. `photoId` is
+ * null for an observation without a photo; `thumbPath` is the photo's small list thumbnail if it has
+ * been made — null while it has not (ask for it with `ensureThumbnails`); `thumbAnnotation` is drawn
+ * over it by the page, never baked into the file.
+ */
 export interface ObservationRow extends Observation {
   planTitle: string;
+  photoId: string | null;
   thumbPath: string | null;
   thumbAnnotation: Annotation | null;
+}
+/** A list thumbnail that exists (absolute path, for convertFileSrc). */
+export interface ThumbReady {
+  photoId: string;
+  path: string;
 }
 /** A stored photo; `path` is absolute, for convertFileSrc (asset protocol, `$APPDATA/projects/**`). */
 export interface Photo {
@@ -194,6 +205,8 @@ export const api = {
   listPins: (planId: string) => invoke<Observation[]>("list_pins", { planId }),
   /** The project's open observations, newest first (the report's order). */
   listObservations: (projectId: string) => invoke<ObservationRow[]>("list_observations", { projectId }),
+  /** Makes the missing list thumbnails among these photos and returns those that are ready (a broken photo is left out). */
+  ensureThumbnails: (projectId: string, photoIds: string[]) => invoke<ThumbReady[]>("ensure_thumbnails", { projectId, photoIds }),
   /** Save of the observation sheet: adds the fraction if new and takes the next number. */
   /** One to three photos are required (`photo_required` / `photo_limit`, D-025). */
   createObservation: (planId: string, x: number, y: number, fraction: string, description: string, photos: PhotoInput[]) =>

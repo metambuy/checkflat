@@ -4,24 +4,26 @@ use std::collections::HashMap;
 
 use checkflat_core::annotation::{self, Annotation};
 use checkflat_core::models::Observation;
-use checkflat_core::photos::{PhotoAnnotation, PhotoInput};
+use checkflat_core::photos::{self, PhotoAnnotation, PhotoInput};
 use checkflat_core::repo::{observations, photos as photo_repo, plans, projects};
 use serde::Serialize;
 use tauri::AppHandle;
 
-use super::photos::absolute;
 use crate::error::AppResult;
 use crate::state::run_db;
 
-/// One row of the observation list: the observation, its plan's title and the thumbnail (the
-/// first photo, absolute path for `convertFileSrc`, with its shapes); `None` for an observation
-/// migrated from Sprint 3a that has no photo.
+/// One row of the observation list: the observation, its plan's title and its first photo.
+/// `photo_id` is that photo (`None` for an observation migrated from Sprint 3a that has none);
+/// `thumb_path` is its small list thumbnail (absolute, for `convertFileSrc`) **if it has been made**
+/// — otherwise `None` and the page asks for it with `ensure_thumbnails`, so the list never waits
+/// for image work — and `thumb_annotation` the shapes to draw over it (never baked into the file).
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObservationRow {
     #[serde(flatten)]
     pub observation: Observation,
     pub plan_title: String,
+    pub photo_id: Option<String>,
     pub thumb_path: Option<String>,
     pub thumb_annotation: Option<Annotation>,
 }
@@ -38,7 +40,11 @@ pub async fn list_observations(app: AppHandle, project_id: String) -> AppResult<
                 let photo = first.remove(&o.id);
                 ObservationRow {
                     plan_title: titles.get(&o.plan_id).cloned().unwrap_or_default(),
-                    thumb_path: photo.as_ref().map(|p| absolute(dir, &p.file_path)),
+                    photo_id: photo.as_ref().map(|p| p.id.clone()),
+                    thumb_path: photo
+                        .as_ref()
+                        .and_then(|p| photos::thumb_path(dir, &o.project_id, &p.id))
+                        .map(|t| t.to_string_lossy().into_owned()),
                     thumb_annotation: photo.and_then(|p| annotation::parse_stored(p.annotation_json.as_deref())),
                     observation: o,
                 }

@@ -1,7 +1,8 @@
 //! Relative-path policy and on-disk layout under the app data dir.
 //!
 //! Layout: `projects/<project_id>/plans/<plan_id>.pdf`, its tile cache
-//! `projects/<project_id>/plans/<plan_id>/tiles/` (D-014), `projects/<project_id>/photos/<photo_id>.jpg`,
+//! `projects/<project_id>/plans/<plan_id>/tiles/` (D-014), `projects/<project_id>/photos/<photo_id>.jpg`
+//! with its list thumbnail `<photo_id>.thumb.jpg` (D-027),
 //! `tmp/<token>.pdf` (plan import staging), `tmp/<token>.jpg` (processed photo waiting for its observation), `projects/.trash/` (quarantine),
 //! `checkflat.db` (+ `-wal`, `-shm`, `.bak-v<n>`) at the root. The database only ever stores [`RelPath`]s.
 use std::collections::HashSet;
@@ -129,6 +130,33 @@ pub fn staging_photo(token: &str) -> RelPath {
 
 pub fn photo_file(project_id: &str, photo_id: &str) -> RelPath {
     RelPath::new(&format!("{PROJECTS_DIR}/{project_id}/{PHOTOS_DIR}/{photo_id}.jpg")).expect("valid")
+}
+
+/// Suffix of a photo's list thumbnail: `<photo_id>.thumb.jpg` next to `<photo_id>.jpg`.
+pub const THUMB_SUFFIX: &str = ".thumb.jpg";
+
+/// The small derived copy of a stored photo that the observation list shows (Sprint 4b, D-027).
+/// A cache, like the tile pyramid: no database column, made on demand, deleted with the photo (and
+/// with the project directory), kept by the startup sweep while the photo is referenced, and left
+/// out of the Sprint 8 archive export.
+pub fn photo_thumb_file(project_id: &str, photo_id: &str) -> RelPath {
+    RelPath::new(&format!("{PROJECTS_DIR}/{project_id}/{PHOTOS_DIR}/{photo_id}{THUMB_SUFFIX}")).expect("valid")
+}
+
+/// The thumbnail that belongs to a photo file (`…/<id>.jpg` → `…/<id>.thumb.jpg`); `None` for a
+/// path that is not a photo file or already is a thumbnail.
+pub fn thumb_of(photo: &RelPath) -> Option<RelPath> {
+    let stem = photo.as_str().strip_suffix(".jpg")?;
+    if stem.ends_with(".thumb") {
+        return None;
+    }
+    RelPath::new(&format!("{stem}{THUMB_SUFFIX}")).ok()
+}
+
+/// The photo file a thumbnail belongs to (`…/<id>.thumb.jpg` → `…/<id>.jpg`), as a relative path
+/// string; `None` for any other name.
+pub fn thumb_owner(rel: &str) -> Option<String> {
+    Some(format!("{}.jpg", rel.strip_suffix(THUMB_SUFFIX)?))
 }
 
 /// A generated report (Sprint 5, temporary location until share/save in Sprint 6): at the data-dir
@@ -308,6 +336,14 @@ pub fn sweep_orphans(conn: &Connection, data_dir: &Path, freshly_created: bool) 
                 };
                 if referenced.contains(&key) {
                     continue;
+                }
+                // A thumbnail is a derived file: it stays while its photo is referenced. A photo
+                // that no row references takes its thumbnail with it, and so does a leftover
+                // `….tmp` of a kill in the middle of writing one (it names no photo).
+                if let Some(owner) = thumb_owner(&rel) {
+                    if RelPath::new(&owner).map(|o| referenced.contains(&o.key())).unwrap_or(false) {
+                        continue;
+                    }
                 }
                 let dest = trash_root
                     .join(format!("{name}-{stamp}"))

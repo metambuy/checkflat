@@ -47,6 +47,7 @@ macro_rules! handler {
             commands::photos::discard_staged_photo,
             commands::photos::existing_staged_photos,
             commands::photos::list_photos,
+            commands::photos::ensure_thumbnails,
             commands::plans::stage_plan_source,
             commands::plans::import_plan,
             commands::plans::discard_staged_plan,

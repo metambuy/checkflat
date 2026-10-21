@@ -19,11 +19,16 @@ use time::macros::format_description;
 use time::{PrimitiveDateTime, UtcOffset};
 
 use crate::annotation::Annotation;
-use crate::paths::{staging_photo, TMP_DIR};
+use crate::paths::{photo_file, photo_thumb_file, staging_photo, TMP_DIR};
 use crate::{clock, ids, CoreError, Result};
 
 pub const MAX_LONG_SIDE: u32 = 1600;
 pub const JPEG_QUALITY: u8 = 85;
+/// Long side of a list thumbnail. The list shows it in a 56 CSS px square; 224 px keeps the short
+/// side of a 4:3 photo at 168 px, i.e. sharp at three device pixels per CSS pixel (the client's phone),
+/// and 56 of them decode to under 10 MB where the 1600 px originals took ≈ 7.7 MB each (D-027).
+pub const THUMB_LONG_SIDE: u32 = 224;
+pub const THUMB_QUALITY: u8 = 80;
 /// Larger sources are refused before decoding (a 50 MP phone JPEG is ~15 MB).
 pub const MAX_SOURCE_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -197,6 +202,72 @@ pub fn exif_local_to_iso(local: &str, offset_secs: i32) -> Option<String> {
     }
     let offset = UtcOffset::from_whole_seconds(offset_secs).ok()?;
     Some(clock::format_iso(t.assume_offset(offset)))
+}
+
+/// A small JPEG of a stored photo: long side at most [`THUMB_LONG_SIDE`] (never enlarged), the
+/// aspect ratio kept — the shapes drawn on the photo are fractions of its size, so the same overlay
+/// fits the thumbnail — and no shapes baked in. The stored file is already upright and without EXIF.
+pub fn make_thumb(photo_jpeg: &[u8]) -> Result<Vec<u8>> {
+    let mut img = ImageReader::new(Cursor::new(photo_jpeg)).with_guessed_format().map_err(unreadable)?.decode().map_err(unreadable)?;
+    if img.width().max(img.height()) > THUMB_LONG_SIDE {
+        img = img.thumbnail(THUMB_LONG_SIDE, THUMB_LONG_SIDE);
+    }
+    let rgb = img.to_rgb8();
+    let mut jpeg = Vec::new();
+    JpegEncoder::new_with_quality(&mut jpeg, THUMB_QUALITY)
+        .write_image(rgb.as_raw(), rgb.width(), rgb.height(), ExtendedColorType::Rgb8)
+        .map_err(unreadable)?;
+    Ok(jpeg)
+}
+
+/// Write `bytes` to `dest` so that `dest` is never seen half written: a uniquely named temporary
+/// file in the same directory, fsync, then rename (atomic on one filesystem). A kill in the middle
+/// leaves only the `….tmp`, which names no photo and is quarantined by the next startup sweep; two
+/// writers of the same `dest` cannot interleave (each has its own temporary file, the last rename
+/// wins with a complete file). Nothing is left behind on an error.
+pub fn write_atomic(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let part = dest.with_file_name(format!("{name}.{}.tmp", ids::new_id()));
+    let written = (|| -> std::io::Result<()> {
+        let mut f = std::fs::File::create(&part)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&part, dest)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    written
+}
+
+/// The list thumbnail of a stored photo, if it has been made.
+pub fn thumb_path(data_dir: &Path, project_id: &str, photo_id: &str) -> Option<std::path::PathBuf> {
+    let p = photo_thumb_file(project_id, photo_id).resolve(data_dir);
+    p.is_file().then_some(p)
+}
+
+/// Make sure the photo has its list thumbnail (`<photo_id>.thumb.jpg`) and return its path. Reads
+/// the stored file, writes the thumbnail atomically ([`write_atomic`]); a thumbnail that exists is
+/// returned as it is. Needs no database (so it runs outside the connection's lock); a photo file
+/// that is gone is `NotFound`. Ids that are not UUIDs are refused before any path is built.
+pub fn ensure_thumb(data_dir: &Path, project_id: &str, photo_id: &str) -> Result<std::path::PathBuf> {
+    if !ids::is_id(project_id) || !ids::is_id(photo_id) {
+        return Err(CoreError::Validation("invalid photo id".into()));
+    }
+    if let Some(existing) = thumb_path(data_dir, project_id, photo_id) {
+        return Ok(existing);
+    }
+    let bytes = match std::fs::read(photo_file(project_id, photo_id).resolve(data_dir)) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(CoreError::NotFound),
+        Err(e) => return Err(e.into()),
+    };
+    let jpeg = make_thumb(&bytes)?;
+    drop(bytes);
+    let dest = photo_thumb_file(project_id, photo_id).resolve(data_dir);
+    write_atomic(&dest, &jpeg)?;
+    Ok(dest)
 }
 
 #[cfg(test)]

@@ -362,6 +362,174 @@ fn first_for_project_gives_each_observations_first_photo_and_stays_inside_the_pr
     assert!(photo_repo::first_for_project(&conn, "nobody").unwrap().is_empty());
 }
 
+// ---- Sprint 4b: list thumbnails (D-027) -------------------------------------------------------
+
+/// A saved observation whose first photo was staged from a `w`×`h` JPEG (so it is stored at ≤ 1600 px).
+fn saved_with_photo_of(conn: &Connection, data: &Path, plan: &Plan, w: u32, h: u32) -> (checkflat_core::models::Observation, checkflat_core::models::Photo) {
+    let s = stage(data, common::jpeg(w, h), 0).unwrap();
+    let input = PhotoInput { token: s.token, taken_at: s.taken_at, annotation: None };
+    let obs = save(conn, data, plan, &[input]).unwrap();
+    let photo = photo_repo::list_for_observation(conn, &obs.id).unwrap().remove(0);
+    (obs, photo)
+}
+
+fn photos_dir_names(data: &Path, project_id: &str) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(paths::project_dir(project_id).resolve(data).join("photos"))
+        .map(|d| d.flatten().map(|f| f.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+#[test]
+fn a_thumbnail_is_made_once_small_with_the_same_aspect_and_nothing_left_beside_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let (_, photo) = saved_with_photo_of(&conn, dir.path(), &plan, 3200, 2400); // stored as 1600×1200
+    assert!(photos::thumb_path(dir.path(), &plan.project_id, &photo.id).is_none(), "made on demand, not at save");
+
+    let path = photos::ensure_thumb(dir.path(), &plan.project_id, &photo.id).unwrap();
+    assert_eq!(path, paths::photo_thumb_file(&plan.project_id, &photo.id).resolve(dir.path()));
+    assert!(path.to_string_lossy().ends_with(&format!("{}.thumb.jpg", photo.id)));
+    let img = image::open(&path).unwrap();
+    assert_eq!(img.dimensions(), (224, 168), "long side 224, 4:3 kept");
+    assert!(std::fs::metadata(&path).unwrap().len() < 20_000, "a few KB, not the original's size");
+    assert_eq!(std::fs::read(&path).unwrap()[..2], [0xFF, 0xD8], "a JPEG");
+    assert_eq!(photos::thumb_path(dir.path(), &plan.project_id, &photo.id), Some(path.clone()));
+
+    // A second call returns the file as it is (no rewrite) and no temporary file is left.
+    let before = std::fs::read(&path).unwrap();
+    assert_eq!(photos::ensure_thumb(dir.path(), &plan.project_id, &photo.id).unwrap(), path);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(photos_dir_names(dir.path(), &plan.project_id), vec![format!("{}.jpg", photo.id), format!("{}.thumb.jpg", photo.id)]);
+    assert_eq!(before, photos::make_thumb(&std::fs::read(photo.file_path.resolve(dir.path())).unwrap()).unwrap(), "the same bytes as a direct make_thumb: nothing drawn on it");
+}
+
+#[test]
+fn thumbnails_keep_portrait_proportions_and_are_never_enlarged() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let (_, tall) = saved_with_photo_of(&conn, dir.path(), &plan, 2400, 3200); // 1200×1600
+    let (_, small) = saved_with_photo_of(&conn, dir.path(), &plan, 64, 48);
+    let t = photos::ensure_thumb(dir.path(), &plan.project_id, &tall.id).unwrap();
+    assert_eq!(image::open(t).unwrap().dimensions(), (168, 224));
+    let t = photos::ensure_thumb(dir.path(), &plan.project_id, &small.id).unwrap();
+    assert_eq!(image::open(t).unwrap().dimensions(), (64, 48), "a photo smaller than the cap is not scaled up");
+}
+
+#[test]
+fn thumbnail_requests_with_bad_ids_or_a_missing_photo_fail_cleanly() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let (_, photo) = saved_with_photo_of(&conn, dir.path(), &plan, 640, 480);
+    for (p, ph) in [("../x", photo.id.as_str()), (plan.project_id.as_str(), "../../checkflat.db"), (plan.project_id.as_str(), "not-an-id")] {
+        assert!(matches!(photos::ensure_thumb(dir.path(), p, ph), Err(CoreError::Validation(_))), "{p} {ph}");
+    }
+    let gone = checkflat_core::ids::new_id();
+    assert!(matches!(photos::ensure_thumb(dir.path(), &plan.project_id, &gone), Err(CoreError::NotFound)));
+    assert_eq!(photos_dir_names(dir.path(), &plan.project_id), vec![format!("{}.jpg", photo.id)], "no thumbnail for a photo that is not there");
+    // An unreadable photo file is an error, not a half-written thumbnail.
+    let broken = checkflat_core::ids::new_id();
+    std::fs::write(paths::photo_file(&plan.project_id, &broken).resolve(dir.path()), b"not a jpeg").unwrap();
+    assert!(photos::ensure_thumb(dir.path(), &plan.project_id, &broken).is_err());
+    assert!(!paths::photo_thumb_file(&plan.project_id, &broken).resolve(dir.path()).exists());
+    assert!(!photos_dir_names(dir.path(), &plan.project_id).iter().any(|n| n.ends_with(".tmp")));
+}
+
+#[test]
+fn a_photo_takes_its_thumbnail_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    // Deleting the pin removes the files of its photos, thumbnails included.
+    let (obs, photo) = saved_with_photo_of(&conn, dir.path(), &plan, 800, 600);
+    let thumb = photos::ensure_thumb(dir.path(), &plan.project_id, &photo.id).unwrap();
+    assert!(thumb.is_file());
+    observations::delete_pin(&conn, dir.path(), &obs.id).unwrap();
+    assert!(!thumb.exists() && !photo.file_path.resolve(dir.path()).exists());
+    assert!(photos_dir_names(dir.path(), &plan.project_id).is_empty());
+
+    // Removing one photo in the edit sheet removes its thumbnail and keeps the other's.
+    let a = stage(dir.path(), common::jpeg(800, 600), 0).unwrap();
+    let b = stage(dir.path(), common::jpeg(800, 600), 0).unwrap();
+    let inputs = [a, b].map(|s| PhotoInput { token: s.token, taken_at: s.taken_at, annotation: None });
+    let obs = save(&conn, dir.path(), &plan, &inputs).unwrap();
+    let rows = photo_repo::list_for_observation(&conn, &obs.id).unwrap();
+    let thumbs: Vec<_> = rows.iter().map(|p| photos::ensure_thumb(dir.path(), &plan.project_id, &p.id).unwrap()).collect();
+    observations::update_observation(&conn, dir.path(), &obs.id, "d", &[], &[rows[0].id.clone()], &[]).unwrap();
+    assert!(!thumbs[0].exists() && !rows[0].file_path.resolve(dir.path()).exists());
+    assert!(thumbs[1].is_file() && rows[1].file_path.resolve(dir.path()).is_file());
+
+    // Deleting the project removes its directory, and with it every thumbnail.
+    projects::delete(&conn, dir.path(), &plan.project_id).unwrap();
+    assert!(!thumbs[1].exists());
+    assert!(!paths::project_dir(&plan.project_id).resolve(dir.path()).exists());
+}
+
+#[test]
+fn the_sweep_keeps_a_thumbnail_while_its_photo_is_referenced_and_takes_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let (_, photo) = saved_with_photo_of(&conn, dir.path(), &plan, 800, 600);
+    let live = photos::ensure_thumb(dir.path(), &plan.project_id, &photo.id).unwrap();
+
+    // A thumbnail of a photo no row references, and the temporary file of a thumbnail whose
+    // writer was killed halfway (it names no photo).
+    let orphan_id = checkflat_core::ids::new_id();
+    let photos_dir = photo.file_path.resolve(dir.path()).parent().unwrap().to_path_buf();
+    std::fs::write(photos_dir.join(format!("{orphan_id}.thumb.jpg")), b"jpeg").unwrap();
+    let half = format!("{}.thumb.jpg.{}.tmp", photo.id, checkflat_core::ids::new_id());
+    std::fs::write(photos_dir.join(&half), [0xFF, 0xD8, 0xFF]).unwrap();
+
+    let report = paths::sweep_orphans(&conn, dir.path(), false).unwrap();
+    let mut q = report.quarantined.clone();
+    q.sort();
+    let mut want = vec![
+        format!("projects/{}/photos/{orphan_id}.thumb.jpg", plan.project_id),
+        format!("projects/{}/photos/{half}", plan.project_id),
+    ];
+    want.sort();
+    assert_eq!(q, want, "{report:?}");
+    assert!(live.is_file(), "the referenced photo's thumbnail stays");
+    assert!(photo.file_path.resolve(dir.path()).is_file());
+    // A thumbnail whose photo file is not referenced goes with it: nothing is derived from nothing.
+    std::fs::write(photos_dir.join("stray.jpg"), b"jpg").unwrap();
+    std::fs::write(photos_dir.join("stray.thumb.jpg"), b"jpg").unwrap();
+    let report = paths::sweep_orphans(&conn, dir.path(), false).unwrap();
+    assert_eq!(report.quarantined.len(), 2, "{report:?}");
+    assert!(live.is_file());
+}
+
+#[test]
+fn a_kill_in_the_middle_of_writing_a_thumbnail_leaves_no_half_file_where_it_is_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, plan) = setup(dir.path());
+    let (_, photo) = saved_with_photo_of(&conn, dir.path(), &plan, 1600, 1200);
+    let photos_dir = photo.file_path.resolve(dir.path()).parent().unwrap().to_path_buf();
+
+    // What a kill leaves: the writer's temporary file, cut short. The thumbnail itself does not
+    // exist, so nothing reads the fragment, and the next request makes a complete one.
+    let full = photos::make_thumb(&std::fs::read(photo.file_path.resolve(dir.path())).unwrap()).unwrap();
+    let stale = photos_dir.join(format!("{}.thumb.jpg.{}.tmp", photo.id, checkflat_core::ids::new_id()));
+    std::fs::write(&stale, &full[..full.len() / 2]).unwrap();
+    assert!(photos::thumb_path(dir.path(), &plan.project_id, &photo.id).is_none());
+    let path = photos::ensure_thumb(dir.path(), &plan.project_id, &photo.id).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), full, "complete, not the fragment");
+    assert!(image::open(&path).is_ok());
+    assert!(stale.is_file(), "the fragment is not touched here; the next startup sweep quarantines it");
+    let report = paths::sweep_orphans(&conn, dir.path(), false).unwrap();
+    assert_eq!(report.quarantined, vec![format!("projects/{}/photos/{}", plan.project_id, stale.file_name().unwrap().to_string_lossy())]);
+    assert!(path.is_file());
+
+    // The writer itself: an error part-way (no such directory) creates nothing at the destination.
+    let nowhere = dir.path().join("no-such-dir").join("x.thumb.jpg");
+    assert!(photos::write_atomic(&nowhere, &full).is_err());
+    assert!(!nowhere.exists());
+    // And a rewrite over an existing file replaces it whole.
+    photos::write_atomic(&path, b"replacement").unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+    assert!(!photos_dir_names(dir.path(), &plan.project_id).iter().any(|n| n.ends_with(".tmp")));
+}
+
 fn ellipse() -> Annotation {
     Annotation::new(vec![Shape::Ellipse { cx: 0.5, cy: 0.5, rx: 0.2, ry: 0.1 }])
 }

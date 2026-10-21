@@ -5,16 +5,19 @@
   // centred (PlanScreen `focusId`). The route carries the filter and the scroll position, so Back
   // from a plan opened out of the list returns here as it was left (routes.ts, D-027). The list
   // scrolls in its own box (the shared <main> scrolls every screen) with fixed-height rows, so a
-  // restored scrollTop lands on the same rows.
+  // restored scrollTop lands on the same rows. Thumbnails are small derived files (D-027): a row
+  // without one yet shows a grey placeholder and the page asks for the missing ones a few at a time,
+  // top rows first, so the list is never held up by image work.
   import { onMount, tick, untrack } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { api, asAppError, type AppError, type Fraction, type ObservationRow } from "../api";
   import { t } from "../i18n.svelte";
   import { back, go } from "../nav.svelte";
   import type { ObservationsScreen } from "../routes";
-  import { descriptionStart, filterRows, fractionChips, planFromList } from "../list/rows";
+  import { descriptionStart, filterRows, fractionChips, planFromList, thumbBatches, withThumbs } from "../list/rows";
   import ShapesOverlay from "../annotate/ShapesOverlay.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
+  import { devlog } from "../devlog";
 
   let { route }: { route: ObservationsScreen } = $props();
 
@@ -31,6 +34,7 @@
   const shown = $derived(filterRows(rows, filter));
 
   onMount(() => {
+    const opened = performance.now();
     (async () => {
       try {
         [rows, fractions] = await Promise.all([api.listObservations(route.projectId), api.listFractions(route.projectId)]);
@@ -39,6 +43,8 @@
         loaded = true;
         await tick();
         if (scroller) scroller.scrollTop = route.scrollTop;
+        devlog(`list: ${rows.length} rows shown ${(performance.now() - opened).toFixed(0)} ms after opening, ${rows.filter((r) => r.thumbPath !== null).length} with a thumbnail`);
+        void fillThumbnails();
       } catch (e) {
         error = asAppError(e);
         loaded = true;
@@ -48,8 +54,30 @@
       if (e.key === "Escape" && !e.defaultPrevented) back();
     };
     window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
+    return () => {
+      alive = false; // stops asking for thumbnails once the screen is gone
+      window.removeEventListener("keydown", key);
+    };
   });
+
+  let alive = true;
+  /** One batch at a time: each result fills its rows in; a failed batch leaves its placeholders. */
+  async function fillThumbnails() {
+    const t0 = performance.now();
+    let made = 0;
+    for (const batch of thumbBatches(rows)) {
+      if (!alive) return;
+      try {
+        const ready = await api.ensureThumbnails(route.projectId, batch);
+        if (!alive) return;
+        rows = withThumbs(rows, ready);
+        made += ready.length;
+      } catch (e) {
+        console.warn("[list] thumbnails skipped", e);
+      }
+    }
+    if (made > 0) devlog(`list: ${made} thumbnails made in ${(performance.now() - t0).toFixed(0)} ms`);
+  }
 
   function sized(id: string, e: Event) {
     const img = e.currentTarget as HTMLImageElement;
@@ -97,7 +125,7 @@
                   {#if row.thumbAnnotation && sizes[row.id]}
                     <ShapesOverlay shapes={row.thumbAnnotation.shapes} width={sizes[row.id].w} height={sizes[row.id].h} fit="cover" thumb />
                   {/if}
-                {:else}
+                {:else if row.photoId === null}
                   <span class="nophoto">{t("observations.no_photo")}</span>
                 {/if}
               </span>

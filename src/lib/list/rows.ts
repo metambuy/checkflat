@@ -27,6 +27,26 @@ export function fractionChips(listed: string[], rows: { fraction: string }[]): s
   return out;
 }
 
+/**
+ * The photos whose list thumbnail still has to be made, in list order (top rows first) and in
+ * batches of `size`: the list asks for one batch at a time, so the rows show at once with
+ * placeholders and the thumbnails appear as they are made. Rows without a photo or with a
+ * thumbnail already are not asked for.
+ */
+export function thumbBatches(rows: { photoId: string | null; thumbPath: string | null }[], size = 4): string[][] {
+  const ids = rows.flatMap((r) => (r.photoId !== null && r.thumbPath === null ? [r.photoId] : []));
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) batches.push(ids.slice(i, i + size));
+  return batches;
+}
+
+/** The rows with the thumbnails that arrived (the same array when none did). */
+export function withThumbs<T extends { photoId: string | null; thumbPath: string | null }>(rows: T[], ready: { photoId: string; path: string }[]): T[] {
+  if (ready.length === 0) return rows;
+  const paths = new Map(ready.map((t) => [t.photoId, t.path]));
+  return rows.map((r) => (r.photoId !== null && paths.has(r.photoId) ? { ...r, thumbPath: paths.get(r.photoId)! } : r));
+}
+
 /** The description on one line: whitespace collapsed, cut after `max` characters with an ellipsis. */
 export function descriptionStart(text: string, max = 80): string {
   const flat = text.replace(/\s+/g, " ").trim();

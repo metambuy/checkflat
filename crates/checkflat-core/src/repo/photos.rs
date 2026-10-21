@@ -10,7 +10,7 @@ use rusqlite::{params, Connection, Row};
 
 use crate::annotation::to_column;
 use crate::models::Photo;
-use crate::paths::{photo_file, RelPath};
+use crate::paths::{photo_file, thumb_of, RelPath};
 use crate::photos::{staged_path, PhotoAnnotation, PhotoInput};
 use crate::{clock, ids, CoreError, Result};
 
@@ -135,13 +135,16 @@ pub fn revert(moved: &Moved) {
     }
 }
 
-/// Remove photo files after their rows are gone. A missing file is fine; other failures are logged.
+/// Remove photo files after their rows are gone, each with its list thumbnail if it has one. A
+/// missing file is fine; other failures are logged.
 pub fn remove_files(data_dir: &Path, paths: &[RelPath]) {
     for p in paths {
-        match std::fs::remove_file(p.resolve(data_dir)) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => log::warn!("photo {p} deleted but its file could not be removed: {e}"),
+        for target in std::iter::once(p.clone()).chain(thumb_of(p)) {
+            match std::fs::remove_file(target.resolve(data_dir)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => log::warn!("photo file {target} could not be removed: {e}"),
+            }
         }
     }
 }
