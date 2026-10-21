@@ -52,7 +52,7 @@ fn seed_annotation(n: u32) -> Annotation {
 }
 
 /// Creates `count` observations on `plan_id` through the normal save path, three photos each
-/// (copies of photos already in the project, re-staged), pseudo-random positions including
+/// (copies of photos already in the project — or, in a fresh project, of other projects' — re-staged), pseudo-random positions including
 /// corners, cycling fractions, long PT descriptions, and capture times on both sides of the 2026-10-25 DST change;
 /// with `annotate`, shapes on every photo (the end-of-Sprint-4 re-measure, D-026).
 /// The 50-observation fixture for the report measurements (D-024).
@@ -70,10 +70,16 @@ pub async fn dev_seed_observations(app: AppHandle, plan_id: String, count: u32, 
                 codes.push(default.to_string());
             }
         }
+        // The project's own photos; a fresh project has none, so it borrows up to ten from any other
+        // project (the copies are re-encoded and stamped, so they are new files either way).
         let mut stmt = c.prepare("SELECT p.file_path FROM photo p JOIN observation o ON o.id = p.observation_id WHERE o.project_id = ?1 ORDER BY p.created_at")?;
-        let sources: Vec<String> = stmt.query_map([&project.id], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        let mut sources: Vec<String> = stmt.query_map([&project.id], |r| r.get(0))?.collect::<Result<_, _>>()?;
         if sources.is_empty() {
-            return Err(CoreError::Validation("seed: add one observation with a photo first".into()));
+            let mut any = c.prepare("SELECT file_path FROM photo ORDER BY created_at LIMIT 10")?;
+            sources = any.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        }
+        if sources.is_empty() {
+            return Err(CoreError::Validation("seed: no photo in any project to copy; add one observation with a photo first".into()));
         }
         let bytes: Vec<Vec<u8>> = sources
             .iter()
