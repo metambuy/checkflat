@@ -5,7 +5,8 @@
 use std::time::Instant;
 
 use checkflat_core::i18n::Lang;
-use checkflat_core::{clock, paths};
+use checkflat_core::clock;
+use checkflat_core::reports::{self, NewReport};
 use checkflat_report::{self as report, Stats};
 use serde::Serialize;
 use tauri::AppHandle;
@@ -34,12 +35,21 @@ pub async fn generate_report(app: AppHandle, project_id: String, lang: String, t
     let lang = Lang::parse(&lang);
     let pid = project_id.clone();
     let source = run_db_with(app.clone(), move |c, dir| report::collect(c, dir, &pid, lang, &time_zone, utc_offset_min)).await?;
+    // Read before `prepare` takes the source: the readable name and the metadata come from the
+    // same instant as the cover's date (D-028).
+    let new = NewReport {
+        name: reports::display_name(&source.project.name, &source.clock.iso_date(&source.created_at)),
+        lang: lang.code().to_string(),
+        pages: 0,
+        created_at: source.created_at.clone(),
+    };
     #[cfg(feature = "dev-seed")]
     let app_out = app.clone();
     let result = run_fs_with(app, move |dir| {
         let input = report::prepare(dir, source)?;
         let rendered = report::render(&input)?;
-        let dest = paths::write_report(dir, &project_id, &clock::now_compact(), &rendered.pdf)?;
+        let new = NewReport { pages: rendered.pages, ..new };
+        let (dest, _meta) = reports::write_report(dir, &project_id, &clock::now_compact(), &rendered.pdf, new)?;
         Ok::<_, report::ReportError>(ReportResult {
             path: dest.to_string_lossy().into_owned(),
             bytes: rendered.pdf.len(),

@@ -31,6 +31,9 @@ pub struct ReportSource {
     pub project: Project,
     pub lang: Lang,
     pub clock: Clock,
+    /// When the report was made (UTC RFC 3339, taken in [`collect`]): the cover's date, the date in
+    /// the file name and the metadata's `createdAt` all come from this one instant (D-028).
+    pub created_at: String,
     pub plans: Vec<PlanSource>,
     /// Open observations, newest first, each with its photos in the order they were added.
     pub observations: Vec<(Observation, Vec<Photo>)>,
@@ -48,7 +51,7 @@ pub fn collect(conn: &Connection, data_dir: &Path, project_id: &str, lang: Lang,
         .map(|o| Ok((photos::list_for_observation(conn, &o.id)?, o)))
         .map(|r: Result<_>| r.map(|(p, o)| (o, p)))
         .collect::<Result<Vec<_>>>()?;
-    Ok(ReportSource { project, lang, clock: Clock::new(zone, utc_offset_min), plans, observations })
+    Ok(ReportSource { project, lang, clock: Clock::new(zone, utc_offset_min), created_at: checkflat_core::clock::now_iso(), plans, observations })
 }
 
 // ---- what the template sees (`sys.inputs.data`, JSON) ----
@@ -162,7 +165,7 @@ fn labels(lang: Lang) -> Labels {
 /// file), then snapshots and photos. Overviews are made once per plan and shared by its
 /// observations.
 pub fn prepare(data_dir: &Path, src: ReportSource) -> Result<ReportInput> {
-    let ReportSource { project, lang, clock, plans, observations } = src;
+    let ReportSource { project, lang, clock, created_at, plans, observations } = src;
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     let mut stats = Stats { observations: observations.len(), ..Stats::default() };
     let plans: HashMap<&str, (&PlanSource, Option<TileManifest>)> =
@@ -263,7 +266,7 @@ pub fn prepare(data_dir: &Path, src: ReportSource) -> Result<ReportInput> {
             Lang::En => None,
         },
         title: t(lang, "report.title", &[]),
-        date: clock.today(),
+        date: clock.date(&created_at),
         project: ProjectData { name: project.name, address: project.address, code: project.code },
         labels: labels(lang),
         observations: out,

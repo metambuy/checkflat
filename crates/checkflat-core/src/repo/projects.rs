@@ -5,6 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use crate::models::{Project, ProjectSummary};
 use crate::paths::project_dir;
 use crate::refs::{self, Scope, Template};
+use crate::reports;
 use crate::repo::{fractions, observations};
 use crate::{clock, ids, CoreError, Result};
 
@@ -144,9 +145,10 @@ pub fn preview_ref(conn: &Connection, id: &str, code: &str, template: &str, scop
     Ok(s.template.render(&s.code, &fraction, seq))
 }
 
-/// Deletes the project row (cascading to plans, visits, observations, photos) and then its
-/// directory on disk. DB first: a failed disk removal can never leave rows pointing at nothing;
-/// leftovers are quarantined by the next startup sweep.
+/// Deletes the project row (cascading to plans, visits, observations, photos), then its
+/// directory and its report on disk (D-028). DB first: a failed disk removal can never leave rows
+/// pointing at nothing; leftovers are quarantined (project files) or removed (report) by the next
+/// startup sweep.
 pub fn delete(conn: &Connection, data_dir: &Path, id: &str) -> Result<()> {
     let n = conn.execute("DELETE FROM project WHERE id = ?1", [id])?;
     if n == 0 {
@@ -159,6 +161,9 @@ pub fn delete(conn: &Connection, data_dir: &Path, id: &str) -> Result<()> {
         Err(e) => {
             log::warn!("project {id} deleted but its directory could not be removed: {e}");
         }
+    }
+    if let Err(e) = reports::remove_for_project(data_dir, id) {
+        log::warn!("project {id} deleted but its report could not be removed: {e}");
     }
     Ok(())
 }

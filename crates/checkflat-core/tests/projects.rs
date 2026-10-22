@@ -2,7 +2,7 @@ mod common;
 
 use checkflat_core::refs::Scope;
 use checkflat_core::repo::{fractions, projects, settings};
-use checkflat_core::{db, paths, CoreError};
+use checkflat_core::{db, paths, reports, CoreError};
 use common::*;
 
 #[test]
@@ -35,9 +35,17 @@ fn crud_and_disk_cleanup() {
     let pdir = paths::project_dir(&p.id).resolve(data);
     std::fs::create_dir_all(pdir.join("plans")).unwrap();
     std::fs::write(pdir.join("plans/plan1.pdf"), b"%PDF").unwrap();
+    let new_report = || reports::NewReport { name: "Obra Y - 2026-10-22.pdf".into(), lang: "en".into(), pages: 1, created_at: "2026-10-22T10:00:00.000Z".into() };
+    let (pdf, _) = reports::write_report(data, &p.id, "20261022T100000000Z", b"%PDF", new_report()).unwrap();
+    let other = projects::create(&conn, "Other", "").unwrap();
+    let (other_pdf, _) = reports::write_report(data, &other.id, "20261022T100000000Z", b"%PDF", new_report()).unwrap();
 
     projects::delete(&conn, data, &p.id).unwrap();
     assert!(!pdir.exists(), "project dir removed");
+    assert!(!pdf.exists(), "report removed with the project (D-028)");
+    assert!(!reports::meta_file(&p.id).resolve(data).exists(), "and its metadata");
+    assert!(other_pdf.exists(), "another project's report stays");
+    projects::delete(&conn, data, &other.id).unwrap();
     assert_eq!(count(&conn, "project"), 0);
     assert_eq!(count(&conn, "plan"), 0);
     assert!(matches!(projects::delete(&conn, data, &p.id), Err(CoreError::NotFound)));

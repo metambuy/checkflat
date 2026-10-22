@@ -126,12 +126,56 @@ fn fresh_db_never_sweeps() {
     let data = dir.path();
     let dead = data.join(format!("projects/{}/plans/x.pdf", ids::new_id()));
     touch(&dead, b"%PDF");
+    let dead_report = data.join(format!("reports/{}-20261022T100000000Z.pdf", ids::new_id()));
+    touch(&dead_report, b"%PDF");
     let opened = db::open(&data.join("checkflat.db")).unwrap();
     assert!(opened.freshly_created);
     let report = sweep_orphans(&opened.conn, data, opened.freshly_created).unwrap();
     assert!(report.skipped_fresh_db);
     assert!(report.quarantined.is_empty());
     assert!(dead.exists());
+    assert!(dead_report.exists(), "reports are not swept on a fresh database either");
+}
+
+#[test]
+fn reports_of_deleted_projects_are_removed_and_live_ones_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = db::open(&data.join("checkflat.db")).unwrap().conn;
+    let live = projects::create(&conn, "Live", "").unwrap();
+    let dead = ids::new_id();
+    let reports_dir = data.join("reports");
+    let kept = [
+        format!("{}-20261022T100000000Z.pdf", live.id),
+        format!("{}.json", live.id),
+        format!("{dead}-notes.txt"),
+        "p1-20261012T100000000Z.pdf".to_string(),
+        "readme.txt".to_string(),
+    ];
+    let removed = [
+        format!("{dead}-20261022T100000000Z.pdf"),
+        format!("{dead}-20261022T090000000Z.pdf.part"),
+        format!("{dead}.json"),
+        format!("{dead}.json.part"),
+    ];
+    for name in kept.iter().chain(removed.iter()) {
+        touch(&reports_dir.join(name), b"x");
+    }
+    // A directory with a report-like name is not a file: left alone.
+    let dead_dir = reports_dir.join(format!("{}-20261022T100000000Z.pdf", ids::new_id()));
+    fs::create_dir_all(&dead_dir).unwrap();
+
+    let report = sweep_orphans(&conn, data, false).unwrap();
+    let mut got = report.removed.clone();
+    got.sort();
+    let mut expected: Vec<String> = removed.iter().map(|n| format!("reports/{n}")).collect();
+    expected.sort();
+    assert_eq!(got, expected);
+    for name in &kept {
+        assert!(reports_dir.join(name).exists(), "{name} kept");
+    }
+    assert!(dead_dir.is_dir());
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
 }
 
 #[cfg(windows)]
