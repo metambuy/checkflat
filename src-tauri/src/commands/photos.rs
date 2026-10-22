@@ -33,7 +33,7 @@ pub struct StagedPhotoView {
     pub taken_at: String,
 }
 
-fn absolute(dir: &std::path::Path, rel: &RelPath) -> String {
+pub(crate) fn absolute(dir: &std::path::Path, rel: &RelPath) -> String {
     rel.resolve(dir).to_string_lossy().into_owned()
 }
 
@@ -80,6 +80,34 @@ pub async fn list_photos(app: AppHandle, observation_id: String) -> AppResult<Ve
                 taken_at: p.taken_at,
             })
             .collect())
+    })
+    .await
+}
+
+/// A list thumbnail that exists now.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbView {
+    pub photo_id: String,
+    pub path: String,
+}
+
+/// Makes the list thumbnails of these photos (the missing ones; an existing one is returned as it
+/// is) and returns the paths of those that are ready. It uses no database connection, so the
+/// image work never holds the lock the other commands wait for (D-027), and it is called in small
+/// batches by the list screen so thumbnails appear as they are made. A photo whose file is gone or
+/// unreadable is skipped with a warning, never failing the batch.
+#[tauri::command]
+pub async fn ensure_thumbnails(app: AppHandle, project_id: String, photo_ids: Vec<String>) -> AppResult<Vec<ThumbView>> {
+    run_fs(app, move |dir| {
+        let mut ready = Vec::with_capacity(photo_ids.len());
+        for photo_id in photo_ids {
+            match photos::ensure_thumb(dir, &project_id, &photo_id) {
+                Ok(path) => ready.push(ThumbView { photo_id, path: path.to_string_lossy().into_owned() }),
+                Err(e) => log::warn!("thumbnail of photo {photo_id} skipped: {e}"),
+            }
+        }
+        Ok(ready)
     })
     .await
 }

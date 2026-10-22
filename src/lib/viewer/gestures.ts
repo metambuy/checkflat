@@ -14,8 +14,10 @@ export interface GestureCallbacks {
   settled(): void;
   minScale(): number;
   maxScale(): number;
-  /** A single-pointer tap at element coordinates (see [`isTap`]). */
+  /** A single-pointer tap on the empty plan at element coordinates (see [`isTap`]). */
   tap?(x: number, y: number): void;
+  /** A tap on a stored pin (`[data-pin]`, the attribute holds its id; see [`pinTap`]). */
+  pintap?(id: string): void;
 }
 
 /** Tap: one pointer only, released within TAP_MS and never moved more than TAP_SLOP px. */
@@ -23,6 +25,13 @@ export const TAP_SLOP = 8;
 export const TAP_MS = 300;
 export function isTap(durationMs: number, maxMovePx: number, maxPointers: number): boolean {
   return maxPointers === 1 && durationMs < TAP_MS && maxMovePx < TAP_SLOP;
+}
+/**
+ * Tap on a stored pin: movement only, however long it was held (there is no long-press action on a
+ * pin, so a slow still press selects instead of doing nothing). A pointer that moves is a pan.
+ */
+export function pinTap(maxMovePx: number, maxPointers: number): boolean {
+  return maxPointers === 1 && maxMovePx < TAP_SLOP;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -38,8 +47,9 @@ export function attachGestures(el: HTMLElement, cb: GestureCallbacks): () => voi
   const pointers = new Map<number, { x: number; y: number }>();
   let start: { t: Transform; cx: number; cy: number; dist: number } | null = null;
   let settleTimer: number | undefined;
-  // Tap tracking for the current touch sequence (first pointer down → last pointer up).
-  let seq: { t0: number; x: number; y: number; maxMove: number; maxPointers: number } | null = null;
+  // Tap tracking for the current touch sequence (first pointer down → last pointer up). `pinId` is
+  // the stored pin the first pointer came down on, if any.
+  let seq: { t0: number; x: number; y: number; maxMove: number; maxPointers: number; pinId: string | null } | null = null;
 
   const local = (e: PointerEvent | WheelEvent) => {
     const r = el.getBoundingClientRect();
@@ -66,14 +76,21 @@ export function attachGestures(el: HTMLElement, cb: GestureCallbacks): () => voi
 
   const down = (e: PointerEvent) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    // Pins handle their own pointers (drag/tap). Svelte delegates onpointerdown to the root, so a
-    // stopPropagation there comes too late for this native listener; skip them here instead.
-    if ((e.target as Element | null)?.closest?.("[data-pin]")) return;
+    // The draft pin (`[data-drag]`) handles its own pointers (drag). Svelte delegates onpointerdown
+    // to the root, so a stopPropagation there comes too late for this native listener; skip it here
+    // instead. Stored pins have no pointer handler: a pointer that starts on one is a pan, or a pin
+    // tap if it does not move (Sprint 4b: pins move only in move mode).
+    const target = e.target as Element | null;
+    if (target?.closest?.("[data-drag]")) return;
     el.setPointerCapture(e.pointerId);
     const p = local(e);
     pointers.set(e.pointerId, p);
-    if (pointers.size === 1) seq = { t0: performance.now(), x: p.x, y: p.y, maxMove: 0, maxPointers: 1 };
-    else if (seq) seq.maxPointers = Math.max(seq.maxPointers, pointers.size);
+    if (pointers.size === 1) {
+      const pinId = target?.closest?.("[data-pin]")?.getAttribute("data-pin") || null;
+      seq = { t0: performance.now(), x: p.x, y: p.y, maxMove: 0, maxPointers: 1, pinId };
+    } else if (seq) {
+      seq.maxPointers = Math.max(seq.maxPointers, pointers.size);
+    }
     begin();
     clearTimeout(settleTimer);
   };
@@ -98,7 +115,8 @@ export function attachGestures(el: HTMLElement, cb: GestureCallbacks): () => voi
     start = null;
     const s = seq;
     seq = null;
-    if (s && e.type === "pointerup" && isTap(performance.now() - s.t0, s.maxMove, s.maxPointers)) cb.tap?.(s.x, s.y);
+    if (s && e.type === "pointerup" && s.pinId !== null && pinTap(s.maxMove, s.maxPointers)) cb.pintap?.(s.pinId);
+    else if (s && e.type === "pointerup" && s.pinId === null && isTap(performance.now() - s.t0, s.maxMove, s.maxPointers)) cb.tap?.(s.x, s.y);
     else scheduleSettle();
   };
   const wheel = (e: WheelEvent) => {

@@ -125,5 +125,15 @@
   "annotate.delete": "Delete shape",
   "annotate.done": "Done",
   "annotate.hint": "Draw with one finger. Tap a shape to select it.",
-  "annotate.limit": "Drawing limit reached — undo or delete a shape"
+  "annotate.limit": "Drawing limit reached — undo or delete a shape",
+  "pin.move": "Move pin",
+  "pin.move_hint": "Drag the pin to its new place.",
+  "observations.title": "Observations",
+  "observations.fractions": "Fraction",
+  "observations.all": "All",
+  "observations.empty": "No open observations yet.",
+  "observations.filter_empty": "No observations in this fraction.",
+  "observations.count": "{count} observations",
+  "observations.count_one": "1 observation",
+  "observations.no_photo": "No photo"
 }

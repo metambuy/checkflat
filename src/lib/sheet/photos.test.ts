@@ -160,7 +160,7 @@ test("'preparing' starts when control comes back, before the path (HEIC conversi
   finishStage(staged("t9"));
   const r = await done;
   assert.equal(r.staged?.token, "t9");
-  assert.deepEqual(phases, ["picking", "preparing", "preparing", "idle"]);
+  assert.deepEqual(phases, ["picking", "preparing", "idle"], "the path arriving while still preparing is not a second 'preparing'");
 });
 
 test("without a return signal, 'preparing' starts when the path arrives", async () => {
@@ -276,4 +276,35 @@ test("not storing the draft does not stop the photo, and a refused tap stores no
   let stores = 0;
   assert.equal(await startAdd(() => false, () => void stores++, { getPath: async () => "/p.jpg", stage: async (p) => staged(p) }, onPhase), null);
   assert.equal(stores, 0);
+});
+
+test("a tap on Camera/Gallery reports each phase once (the dev log showed every line twice)", async () => {
+  // startAdd says "picking" before the draft is stored, then hands over to acquirePhoto.
+  const app = fakeApp();
+  const { phases, onPhase } = track();
+  const r = await startAdd(
+    () => true,
+    () => {},
+    { getPath: async () => { app.leave(); app.come_back(); await tick(); return "/p.jpg"; }, stage: async (p) => staged(p), watchReturn: () => watchReturn(app.win, app.doc) },
+    onPhase,
+  );
+  assert.equal(r?.staged?.token, "/p.jpg");
+  assert.deepEqual(phases, ["picking", "preparing", "idle"]);
+
+  const cancelled = track();
+  await startAdd(() => true, () => {}, { getPath: async () => null, stage: async (p) => staged(p) }, cancelled.onPhase);
+  assert.deepEqual(cancelled.phases, ["picking", "idle"]);
+
+  const failed = track();
+  await startAdd(() => true, () => {}, { getPath: async () => "/p.jpg", stage: async () => { throw new Error("x"); } }, failed.onPhase);
+  assert.deepEqual(failed.phases, ["picking", "preparing", "idle"]);
+});
+
+test("acquirePhoto on its own still starts with 'picking'; told it was reported already, it does not repeat it", async () => {
+  const alone = track();
+  await acquirePhoto({ getPath: async () => null, stage: async (p) => staged(p) }, alone.onPhase);
+  assert.deepEqual(alone.phases, ["picking", "idle"]);
+  const continued = track();
+  await acquirePhoto({ getPath: async () => null, stage: async (p) => staged(p) }, continued.onPhase, "picking");
+  assert.deepEqual(continued.phases, ["idle"]);
 });

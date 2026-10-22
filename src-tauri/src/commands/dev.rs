@@ -5,7 +5,6 @@ use std::io::Cursor;
 
 use checkflat_core::annotation::{Annotation, Shape};
 use checkflat_core::photos::{self, PhotoInput};
-use checkflat_core::refs::Scope;
 use checkflat_core::repo::{fractions, observations, plans, projects};
 use checkflat_core::CoreError;
 use tauri::AppHandle;
@@ -53,8 +52,8 @@ fn seed_annotation(n: u32) -> Annotation {
 }
 
 /// Creates `count` observations on `plan_id` through the normal save path, three photos each
-/// (copies of photos already in the project, re-staged), pseudo-random positions including
-/// corners, long PT descriptions, and capture times on both sides of the 2026-10-25 DST change;
+/// (copies of photos already in the project — or, in a fresh project, of other projects' — re-staged), pseudo-random positions including
+/// corners, cycling fractions, long PT descriptions, and capture times on both sides of the 2026-10-25 DST change;
 /// with `annotate`, shapes on every photo (the end-of-Sprint-4 re-measure, D-026).
 /// The 50-observation fixture for the report measurements (D-024).
 #[tauri::command]
@@ -62,17 +61,25 @@ pub async fn dev_seed_observations(app: AppHandle, plan_id: String, count: u32, 
     run_db(app, move |c, dir| {
         let plan = plans::get(c, &plan_id)?;
         let project = projects::get(c, &plan.project_id)?;
-        let fraction = match project.seq_scope {
-            Scope::Project => String::new(),
-            Scope::Fraction => fractions::list(c, &project.id)?
-                .first()
-                .map(|f| f.code.clone())
-                .ok_or_else(|| CoreError::Validation("seed: the project numbers per fraction but has none".into()))?,
-        };
+        // The observations cycle over three fraction codes (the project's own first, topped up
+        // from the defaults; the save adds the new ones), so the list's filter has something to
+        // filter. In a project that numbers per fraction each code runs its own sequence.
+        let mut codes: Vec<String> = fractions::list(c, &project.id)?.into_iter().map(|f| f.code).take(3).collect();
+        for default in ["A", "B", "PC"] {
+            if codes.len() < 3 && !codes.iter().any(|x| x.eq_ignore_ascii_case(default)) {
+                codes.push(default.to_string());
+            }
+        }
+        // The project's own photos; a fresh project has none, so it borrows up to ten from any other
+        // project (the copies are re-encoded and stamped, so they are new files either way).
         let mut stmt = c.prepare("SELECT p.file_path FROM photo p JOIN observation o ON o.id = p.observation_id WHERE o.project_id = ?1 ORDER BY p.created_at")?;
-        let sources: Vec<String> = stmt.query_map([&project.id], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        let mut sources: Vec<String> = stmt.query_map([&project.id], |r| r.get(0))?.collect::<Result<_, _>>()?;
         if sources.is_empty() {
-            return Err(CoreError::Validation("seed: add one observation with a photo first".into()));
+            let mut any = c.prepare("SELECT file_path FROM photo ORDER BY created_at LIMIT 10")?;
+            sources = any.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        }
+        if sources.is_empty() {
+            return Err(CoreError::Validation("seed: no photo in any project to copy; add one observation with a photo first".into()));
         }
         let bytes: Vec<Vec<u8>> = sources
             .iter()
@@ -99,7 +106,7 @@ pub async fn dev_seed_observations(app: AppHandle, plan_id: String, count: u32, 
                 })
                 .collect::<Result<_, CoreError>>()?;
             let text = format!("{} {}", TEXTS[(i as usize) % TEXTS.len()], i + 1);
-            observations::create_observation(c, dir, &plan.id, x, y, &fraction, &text, &staged)?;
+            observations::create_observation(c, dir, &plan.id, x, y, &codes[i as usize % codes.len()], &text, &staged)?;
         }
         Ok(count)
     })

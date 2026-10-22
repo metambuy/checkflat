@@ -156,37 +156,46 @@ export async function startAdd(
   } catch {
     // not storing the draft must not stop the photo
   }
-  return acquirePhoto(source, onPhase);
+  return acquirePhoto(source, onPhase, "picking");
 }
 
 /**
  * One add of a photo. "preparing" starts when control comes back (the signal from `watchReturn`)
  * or, at the latest, when a path arrives, and lasts until the photo is processed; every way out
  * (cancelled, failed, done) ends in "idle", so the sheet can never be left waiting. A cancel is
- * `{ staged: null, error: null }`.
+ * `{ staged: null, error: null }`. `onPhase` is called when the phase changes, never twice in a row
+ * with the same one (the sheet logs every call): `from` is the phase the caller has already
+ * reported (`startAdd` reports "picking" before it stores the draft).
  */
 export async function acquirePhoto(
   source: PhotoSource,
   onPhase: (p: Phase) => void,
+  from: Phase = "idle",
 ): Promise<{ staged: StagedPhoto | null; error: unknown }> {
   let finished = false;
   let watch: ReturnWatch | undefined;
-  onPhase("picking");
+  let last = from;
+  const emit = (p: Phase) => {
+    if (p === last) return;
+    last = p;
+    onPhase(p);
+  };
+  emit("picking");
   try {
     // Inside the try: whatever fails here still ends in "idle".
     watch = source.watchReturn?.();
     void watch?.returned.then(() => {
-      if (!finished) onPhase("preparing");
+      if (!finished) emit("preparing");
     });
     const path = await source.getPath();
     if (!path) return { staged: null, error: null };
-    onPhase("preparing");
+    emit("preparing");
     return { staged: await source.stage(path), error: null };
   } catch (error) {
     return { staged: null, error };
   } finally {
     finished = true;
     watch?.stop();
-    onPhase("idle");
+    emit("idle");
   }
 }

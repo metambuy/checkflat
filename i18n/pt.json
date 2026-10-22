@@ -125,5 +125,15 @@
   "annotate.delete": "Apagar forma",
   "annotate.done": "Concluir",
   "annotate.hint": "Desenhe com um dedo. Toque numa forma para a selecionar.",
-  "annotate.limit": "Limite do desenho atingido — anule ou apague uma forma"
+  "annotate.limit": "Limite do desenho atingido — anule ou apague uma forma",
+  "pin.move": "Mover marcador",
+  "pin.move_hint": "Arraste o marcador para a nova posição.",
+  "observations.title": "Observações",
+  "observations.fractions": "Fração",
+  "observations.all": "Todas",
+  "observations.empty": "Ainda não há observações em aberto.",
+  "observations.filter_empty": "Sem observações nesta fração.",
+  "observations.count": "{count} observações",
+  "observations.count_one": "1 observação",
+  "observations.no_photo": "Sem foto"
 }

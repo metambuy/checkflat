@@ -2,6 +2,7 @@
 //! row + `projects/<pid>/photos/<photo_id>.jpg` in [`attach`], inside the transaction that saves
 //! its observation. Rows go before files on delete (D-010): a failed removal leaves an orphan the
 //! sweep quarantines, never a row pointing at nothing.
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -9,7 +10,7 @@ use rusqlite::{params, Connection, Row};
 
 use crate::annotation::to_column;
 use crate::models::Photo;
-use crate::paths::{photo_file, RelPath};
+use crate::paths::{photo_file, thumb_of, RelPath};
 use crate::photos::{staged_path, PhotoAnnotation, PhotoInput};
 use crate::{clock, ids, CoreError, Result};
 
@@ -31,6 +32,24 @@ pub fn list_for_observation(conn: &Connection, observation_id: &str) -> Result<V
     let mut stmt = conn.prepare("SELECT * FROM photo WHERE observation_id = ?1 ORDER BY created_at, id")?;
     let rows = stmt.query_map([observation_id], row_to_photo)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The first photo (the one [`list_for_observation`] returns first) of every observation of the
+/// project that has one, by observation id: the observation list's thumbnails. One query, no
+/// per-observation round trips.
+pub fn first_for_project(conn: &Connection, project_id: &str) -> Result<HashMap<String, Photo>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.* FROM photo p JOIN observation o ON o.id = p.observation_id
+         WHERE o.project_id = ?1
+           AND p.id = (SELECT q.id FROM photo q WHERE q.observation_id = p.observation_id ORDER BY q.created_at, q.id LIMIT 1)",
+    )?;
+    let rows = stmt.query_map([project_id], row_to_photo)?;
+    let mut first = HashMap::new();
+    for photo in rows {
+        let photo = photo?;
+        first.insert(photo.observation_id.clone(), photo);
+    }
+    Ok(first)
 }
 
 /// A staged file moved into the project: `(destination, where it came from)`.
@@ -116,13 +135,16 @@ pub fn revert(moved: &Moved) {
     }
 }
 
-/// Remove photo files after their rows are gone. A missing file is fine; other failures are logged.
+/// Remove photo files after their rows are gone, each with its list thumbnail if it has one. A
+/// missing file is fine; other failures are logged.
 pub fn remove_files(data_dir: &Path, paths: &[RelPath]) {
     for p in paths {
-        match std::fs::remove_file(p.resolve(data_dir)) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => log::warn!("photo {p} deleted but its file could not be removed: {e}"),
+        for target in std::iter::once(p.clone()).chain(thumb_of(p)) {
+            match std::fs::remove_file(target.resolve(data_dir)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => log::warn!("photo file {target} could not be removed: {e}"),
+            }
         }
     }
 }

@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import android.provider.OpenableColumns
@@ -50,6 +51,8 @@ class DisplayNameArgs {
 class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     private var pendingFile: File? = null
     private var pickPending = false
+    // When the camera was launched (elapsedRealtime), for the "after … ms" in the result line.
+    private var captureStartedAt = 0L
 
     // The pick that has not been settled yet. `pickImage` must always resolve (a path, or nothing
     // when the user backed out); if the system never delivers the activity result, the lifecycle
@@ -101,6 +104,7 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         // Tauri's PluginManager keeps a single activity-result callback; a second capture while the
         // camera is open would orphan the first Invoke (its promise would never settle).
         if (pendingFile != null || pickPending) {
+            Log.w(TAG, "capture: rejected (in progress)")
             invoke.reject("capture already in progress")
             return
         }
@@ -117,11 +121,14 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         // Persist the target before the camera opens: if Android kills this process while the
         // camera is in front, the photo still lands in this file and `takeRecoveredCapture` finds it.
         prefs().edit().putString(PENDING_CAPTURE, file.absolutePath).commit()
+        captureStartedAt = SystemClock.elapsedRealtime()
+        Log.i(TAG, "capture: launching file=${file.name} api=${Build.VERSION.SDK_INT}")
         try {
             startActivityForResult(invoke, intent, "onCaptureResult")
         } catch (e: ActivityNotFoundException) {
             pendingFile = null
             prefs().edit().remove(PENDING_CAPTURE).commit()
+            Log.w(TAG, "capture: no camera app")
             invoke.reject("no camera app available")
         }
     }
@@ -158,6 +165,9 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         val file = pendingFile
         pendingFile = null
         prefs().edit().remove(PENDING_CAPTURE).commit()
+        val after = if (captureStartedAt > 0L) SystemClock.elapsedRealtime() - captureStartedAt else -1L
+        captureStartedAt = 0L
+        Log.i(TAG, "capture: result code=${result.resultCode} exists=${file?.exists()} bytes=${file?.length()} after $after ms")
         if (result.resultCode != Activity.RESULT_OK || file == null || !file.exists() || file.length() == 0L) {
             file?.delete()
             invoke.resolve(JSObject()) // cancelled: no path

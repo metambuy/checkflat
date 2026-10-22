@@ -31,6 +31,8 @@ h2 { font-size: 1.1rem; margin: 0.75rem 0 0.25rem; }
 .danger { color: #b3261e; border-color: #e3a4a8; }
 button { min-height: 44px; }
 button:disabled { opacity: 0.5; cursor: default; }
+/* A square icon button: 44 px, the icon centred (give it aria-label and title). */
+button.icon { width: 44px; min-width: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 label { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.4rem 0; font-size: 0.9rem; color: #444; }
 input { font: inherit; padding: 0.55rem 0.7rem; border: 1px solid #bbb; border-radius: 6px; min-height: 44px; }
 form .actions, .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
