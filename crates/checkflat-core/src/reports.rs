@@ -81,12 +81,13 @@ pub fn meta_file(project_id: &str) -> RelPath {
     RelPath::new(&format!("{REPORTS_DIR}/{project_id}{META_EXT}")).expect("valid")
 }
 
-/// The name a recipient sees: `"<project name> - <date>.pdf"`, `date` as `yyyy-mm-dd`. Control
-/// characters and `/ \ : * ? " < > |` become spaces, runs of whitespace one space; the name is cut
-/// to [`NAME_MAX_BYTES`] on a character boundary and then loses spaces, dots and hyphens at both
-/// ends (no hidden file, no trailing space from the cut). Accents are kept. An empty result is
-/// [`NAME_FALLBACK`].
-pub fn display_name(project_name: &str, date: &str) -> String {
+/// The name a recipient sees: `"<project name> - <date> - <LANG>.pdf"`, `date` as `yyyy-mm-dd`,
+/// `lang` the report's language code (`pt` → `PT`), so the EN and PT reports of one day differ
+/// (Martín's P30 check, D-028). Control characters and `/ \ : * ? " < > |` become spaces, runs of
+/// whitespace one space; the project name is cut to [`NAME_MAX_BYTES`] on a character boundary
+/// and then loses spaces, dots and hyphens at both ends (no hidden file, no trailing space from
+/// the cut). Accents are kept. An empty result is [`NAME_FALLBACK`].
+pub fn display_name(project_name: &str, date: &str, lang: &str) -> String {
     let cleaned: String = project_name.chars().map(|c| if c.is_control() || FORBIDDEN.contains(&c) { ' ' } else { c }).collect();
     let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut end = collapsed.len().min(NAME_MAX_BYTES);
@@ -95,7 +96,7 @@ pub fn display_name(project_name: &str, date: &str) -> String {
     }
     let trimmed = collapsed[..end].trim_matches(|c: char| c == ' ' || c == '.' || c == '-');
     let base = if trimmed.is_empty() { NAME_FALLBACK } else { trimmed };
-    format!("{base} - {date}.pdf")
+    format!("{base} - {date} - {}.pdf", lang.to_ascii_uppercase())
 }
 
 /// A readable name as [`display_name`] makes it; anything else in the metadata is not used as a
@@ -355,24 +356,25 @@ mod tests {
 
     #[test]
     fn display_name_cleans_cuts_and_keeps_accents() {
-        assert_eq!(display_name("Perf A1 4a", DATE), "Perf A1 4a - 2026-10-22.pdf");
-        assert_eq!(display_name("Rua 5/7: \"Bloco A\"", DATE), "Rua 5 7 Bloco A - 2026-10-22.pdf");
-        assert_eq!(display_name("Edifício São João", DATE), "Edifício São João - 2026-10-22.pdf");
-        assert_eq!(display_name("  ..Obra.  ", DATE), "Obra - 2026-10-22.pdf");
-        assert_eq!(display_name("a\u{0}b\tc\nd*e?f<g>h|i\\j", DATE), "a b c d e f g h i j - 2026-10-22.pdf");
-        assert_eq!(display_name("///", DATE), "Checkflat - 2026-10-22.pdf");
-        assert_eq!(display_name("", DATE), "Checkflat - 2026-10-22.pdf");
-        assert_eq!(display_name(" - . - ", DATE), "Checkflat - 2026-10-22.pdf");
+        assert_eq!(display_name("Perf A1 4a", DATE, "pt"), "Perf A1 4a - 2026-10-22 - PT.pdf");
+        assert_eq!(display_name("Perf A1 4a", DATE, "en"), "Perf A1 4a - 2026-10-22 - EN.pdf", "the two languages of one day differ");
+        assert_eq!(display_name("Rua 5/7: \"Bloco A\"", DATE, "pt"), "Rua 5 7 Bloco A - 2026-10-22 - PT.pdf");
+        assert_eq!(display_name("Edifício São João", DATE, "pt"), "Edifício São João - 2026-10-22 - PT.pdf");
+        assert_eq!(display_name("  ..Obra.  ", DATE, "pt"), "Obra - 2026-10-22 - PT.pdf");
+        assert_eq!(display_name("a\u{0}b\tc\nd*e?f<g>h|i\\j", DATE, "en"), "a b c d e f g h i j - 2026-10-22 - EN.pdf");
+        assert_eq!(display_name("///", DATE, "pt"), "Checkflat - 2026-10-22 - PT.pdf");
+        assert_eq!(display_name("", DATE, "pt"), "Checkflat - 2026-10-22 - PT.pdf");
+        assert_eq!(display_name(" - . - ", DATE, "pt"), "Checkflat - 2026-10-22 - PT.pdf");
         // 99 ASCII bytes + "ç" (2 bytes) crosses 100: the cut falls before the "ç".
         let long = format!("{}ç tail", "a".repeat(99));
-        assert_eq!(display_name(&long, DATE), format!("{} - {DATE}.pdf", "a".repeat(99)));
+        assert_eq!(display_name(&long, DATE, "pt"), format!("{} - {DATE} - PT.pdf", "a".repeat(99)));
         // A cut that ends on a space loses it.
         let spaced = format!("{} b{}", "a".repeat(99), "c".repeat(20));
-        assert_eq!(display_name(&spaced, DATE), format!("{} - {DATE}.pdf", "a".repeat(99)));
+        assert_eq!(display_name(&spaced, DATE, "pt"), format!("{} - {DATE} - PT.pdf", "a".repeat(99)));
         for n in ["Perf A1 4a", "Rua 5/7: \"Bloco A\"", "///", &long] {
-            assert!(is_safe_name(&display_name(n, DATE)), "{n:?}");
+            assert!(is_safe_name(&display_name(n, DATE, "pt")), "{n:?}");
         }
-        assert!(display_name(&"ã".repeat(200), DATE).len() <= 100 + " - 2026-10-22.pdf".len());
+        assert!(display_name(&"ã".repeat(200), DATE, "pt").len() <= 100 + " - 2026-10-22 - PT.pdf".len());
     }
 
     #[test]

@@ -83,7 +83,7 @@ pub async fn generate_report(app: AppHandle, project_id: String, lang: String, t
     // Read before `prepare` takes the source: the readable name and the metadata come from the
     // same instant as the cover's date (D-028).
     let new = NewReport {
-        name: reports::display_name(&source.project.name, &source.clock.iso_date(&source.created_at)),
+        name: reports::display_name(&source.project.name, &source.clock.iso_date(&source.created_at), lang.code()),
         lang: lang.code().to_string(),
         pages: 0,
         created_at: source.created_at.clone(),

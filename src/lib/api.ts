@@ -157,7 +157,7 @@ export interface ReportInfo {
   v: number;
   /** The stored file's name (internal). */
   file: string;
-  /** What other apps show: "<project> - yyyy-mm-dd.pdf". */
+  /** What other apps show: "<project> - yyyy-mm-dd - PT.pdf". */
   name: string;
   lang: "en" | "pt";
   pages: number;
