@@ -152,12 +152,22 @@ export interface TileInfo {
   manifest: TileManifest | null;
 }
 
-/** What `generate_report` did (Sprint 5, temporary action; share/save is Sprint 6). */
-export interface ReportResult {
-  /** Absolute path of the written PDF. */
-  path: string;
-  bytes: number;
+/** A project's latest report (`reports/<project>.json`, Sprint 6a, D-028). */
+export interface ReportInfo {
+  v: number;
+  /** The stored file's name (internal). */
+  file: string;
+  /** What other apps show: "<project> - yyyy-mm-dd.pdf". */
+  name: string;
+  lang: "en" | "pt";
   pages: number;
+  bytes: number;
+  /** UTC, RFC 3339: when it was generated. */
+  createdAt: string;
+}
+/** What `generate_report` did. The timings are shown only in spike builds. */
+export interface ReportResult {
+  report: ReportInfo;
   stats: {
     observations: number;
     photos: number;
@@ -171,6 +181,11 @@ export interface ReportResult {
   compileMs: number;
   pdfMs: number;
   totalMs: number;
+}
+/** The installed version: Android's versionName + versionCode (the CI run number); no build on desktop. */
+export interface AppVersion {
+  version: string;
+  build: string | null;
 }
 
 export function isAppError(e: unknown): e is AppError {
@@ -234,9 +249,16 @@ export const api = {
     invoke<void>("write_plan_tile", { planId, size, x, y, data }),
   writePlanTileManifest: (planId: string, manifest: TileManifest) => invoke<void>("write_plan_tile_manifest", { planId, manifest }),
   clearPlanTiles: (planId: string) => invoke<void>("clear_plan_tiles", { planId }),
-  /** Writes the project's report PDF. `timeZone`: IANA name of the device's zone; `utcOffsetMin`: its current offset (fallback). */
+  /** Writes the project's report PDF (one run at a time: `report_busy`). `timeZone`: IANA name of the device's zone; `utcOffsetMin`: its current offset (fallback). */
   generateReport: (projectId: string, lang: "en" | "pt", timeZone: string, utcOffsetMin: number) =>
     invoke<ReportResult>("generate_report", { projectId, lang, timeZone, utcOffsetMin }),
+  /** The project's latest report; null when there is none (or it was made before Sprint 6a). */
+  latestReport: (projectId: string) => invoke<ReportInfo | null>("latest_report", { projectId }),
+  /** Android: opens the latest report in a PDF viewer (`no_pdf_app`, `no_report`). */
+  openReport: (projectId: string) => invoke<void>("open_report", { projectId }),
+  /** Android: shares the latest report through the share sheet (`no_share_app`, `no_report`). */
+  shareReport: (projectId: string, title: string) => invoke<void>("share_report", { projectId, title }),
+  appVersion: () => invoke<AppVersion>("app_version"),
   /** Debug builds only (the command does not exist in release builds, except local `dev-seed` ones): seeds `count` observations on a plan, with shapes on every photo when `annotate`. */
   devSeedObservations: (planId: string, count: number, annotate: boolean) => invoke<number>("dev_seed_observations", { planId, count, annotate }),
 };

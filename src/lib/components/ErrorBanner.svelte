@@ -18,6 +18,10 @@
       case "unreadable_image": return t("error.unreadable_image");
       case "image_unsupported": return t("error.image_unsupported");
       case "report": return t("error.report", { message: e.message });
+      case "report_busy": return t("error.report_busy");
+      case "no_report": return t("error.no_report");
+      case "no_pdf_app": return t("error.no_pdf_app");
+      case "no_share_app": return t("error.no_share_app");
       case "validation": return t("error.validation");
       case "not_found": return t("error.not_found");
       case "db": return t("error.db");

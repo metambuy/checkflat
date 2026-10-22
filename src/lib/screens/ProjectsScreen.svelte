@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, asAppError, type AppError, type ProjectSummary } from "../api";
+  import { api, asAppError, type AppError, type AppVersion, type ProjectSummary } from "../api";
   import { t } from "../i18n.svelte";
   import { go } from "../nav.svelte";
+  import { isDebug } from "../platform";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
@@ -26,6 +27,14 @@
     }
   }
   onMount(refresh);
+
+  // About line (D-028): which build is installed, so a tester can say which one he has.
+  let version = $state<AppVersion | null>(null);
+  let debug = $state(false);
+  onMount(() => {
+    api.appVersion().then((v) => (version = v)).catch((e) => console.warn("app version unavailable", e));
+    void isDebug().then((d) => (debug = d));
+  });
 
   async function create() {
     try {
@@ -107,4 +116,14 @@
     onconfirm={remove}
     oncancel={() => (toDelete = null)}
   />
+
+  {#if version}
+    <p class="muted about">
+      {version.build ? t("about.version", { version: version.version, build: version.build }) : t("about.version_only", { version: version.version })}{debug ? " · debug" : ""}
+    </p>
+  {/if}
 </section>
+
+<style>
+  .about { margin-top: 1.5rem; text-align: center; font-size: 12px; }
+</style>
