@@ -31,3 +31,23 @@ pub struct DisplayNameResponse {
     #[serde(default)]
     pub name: Option<String>,
 }
+
+/// A report copy under the app cache's `reports/` (the Rust side makes it); `title` is the share
+/// sheet's title where the chooser shows one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfArgs {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// The installed app version: Android's versionName and versionCode (the CI run number, D-021);
+/// on desktop the package version and no build number.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppVersion {
+    pub version_name: String,
+    #[serde(default)]
+    pub version_code: Option<i64>,
+}

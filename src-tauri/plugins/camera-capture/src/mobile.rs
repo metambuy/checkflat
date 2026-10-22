@@ -43,4 +43,20 @@ impl<R: Runtime> CameraCapture<R> {
         let r: DisplayNameResponse = self.0.run_mobile_plugin("displayName", DisplayNameArgs { uri })?;
         Ok(r.name)
     }
+
+    /// Opens a report copy (a file under the app cache's `reports/`) in a PDF viewer. When no app
+    /// can open PDFs the error's [`crate::Error::rejected_code`] is `no_app`.
+    pub fn view_pdf(&self, path: String) -> crate::Result<()> {
+        self.0.run_mobile_plugin("viewPdf", PdfArgs { path, title: None }).map_err(Into::into)
+    }
+
+    /// Shares a report copy through the system share sheet (`no_app` as for [`Self::view_pdf`]).
+    pub fn share_pdf(&self, path: String, title: String) -> crate::Result<()> {
+        self.0.run_mobile_plugin("sharePdf", PdfArgs { path, title: Some(title) }).map_err(Into::into)
+    }
+
+    /// The installed versionName and versionCode (PackageManager).
+    pub fn app_version(&self) -> crate::Result<AppVersion> {
+        self.0.run_mobile_plugin("appVersion", ()).map_err(Into::into)
+    }
 }
