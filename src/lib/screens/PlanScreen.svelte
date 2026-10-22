@@ -16,7 +16,7 @@
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import ObservationSheet from "./ObservationSheet.svelte";
   import PlanViewer from "../viewer/PlanViewer.svelte";
-  import { cancel, confirm, moveDraft, noDraft, startAdding, startMoving, tap, type DraftState } from "../viewer/draft";
+  import { cancel, confirm, moveDraft, noDraft, sheetAfter, showsCreateSheet, startAdding, startMoving, tap, type DraftState, type SheetMode } from "../viewer/draft";
   import { ensureTiles, isComplete, viewable, type Progress } from "../viewer/tiles";
   import { backStep } from "../viewer/back";
   import { stageView } from "../viewer/manifest";
@@ -45,7 +45,7 @@
   let genFailed = $state(false);
   let error = $state<AppError | null>(null);
   let toDelete = $state<Observation | null>(null);
-  let sheet = $state<"create" | "edit" | null>(null);
+  let sheet = $state<SheetMode>(null);
   let editSaving = $state(false);
   let sheetError = $state<AppError | null>(null);
   let viewer = $state<PlanViewer | null>(null);
@@ -62,6 +62,8 @@
   // Move mode: the pin being moved is the viewer's draft, so it is not drawn at its old place too.
   const moved = $derived(ds.moving ? (pins.find((p) => p.id === ds.moving) ?? null) : null);
   const shownPins = $derived(ds.moving ? pins.filter((p) => p.id !== ds.moving) : pins);
+  const createShown = $derived(showsCreateSheet(sheet, ds));
+  const sheetShown = $derived(createShown || (sheet === "edit" && selected !== null));
   const percent = $derived(progress && progress.total ? Math.floor((progress.done / progress.total) * 100) : 0);
   const stage = $derived(stageView(manifest !== null, genFailed, progress !== null));
 
@@ -96,7 +98,7 @@
         case "dialog": toDelete = null; return true;
         case "busy": return true; // a save is in flight: Back does nothing
         case "sheet": closeSheet(); return true;
-        case "draft": ds = cancel(ds); return true;
+        case "draft": setDraft(cancel(ds)); return true;
         case "selection": selectedId = null; return true;
         default: return false;
       }
@@ -137,7 +139,7 @@
       restoredDraft = null;
       void saver.clear();
     } else if (target.sheet === "create") {
-      ds = { ...noDraft, draft: { x: d.x, y: d.y } };
+      setDraft({ ...noDraft, draft: { x: d.x, y: d.y } });
       sheet = "create";
     } else {
       selectedId = target.selectedId;
@@ -147,7 +149,15 @@
 
   function startAdd() {
     selectedId = null;
-    ds = startAdding(ds);
+    setDraft(startAdding(ds));
+  }
+
+  /** Every change of the draft goes through here: a create sheet closes with its draft, wherever
+   * the draft was cleared (Cancel, Back, a pin selected, a successful Save), and never stays open
+   * into a move (D-027, review 1e). */
+  function setDraft(next: DraftState) {
+    ds = next;
+    if (sheetAfter(sheet, next) !== sheet) closeSheet();
   }
 
   function closeSheet() {
@@ -167,14 +177,14 @@
     return immediate ? saver.flush(d) : saver.schedule(d);
   }
 
-  /** Save of the sheet: one create_observation for the draft; the list is re-read in the
-   * server's order. On failure the sheet stays open with the error. */
+  /** Save of the sheet: one create_observation for the draft; the sheet closes with the draft on
+   * success (setDraft) and the list is re-read in the server's order. On failure the sheet stays
+   * open with the error. */
   async function saveObservation(fraction: string, description: string, photos: SheetPhotos) {
     sheetError = null;
     try {
-      const pin = await confirm(() => ds, (s) => (ds = s), (p) => api.createObservation(planId, p.x, p.y, fraction, description, photos.photos));
+      const pin = await confirm(() => ds, setDraft, (p) => api.createObservation(planId, p.x, p.y, fraction, description, photos.photos));
       if (!pin) return;
-      closeSheet();
       selectedId = pin.id;
       pins = await api.listPins(planId);
     } catch (e) {
@@ -204,7 +214,7 @@
 
   /** Move on the selected pin: it becomes the draft, at its place. */
   function startMove() {
-    if (selected) ds = startMoving(ds, selected.id, { x: selected.xNorm, y: selected.yNorm });
+    if (selected) setDraft(startMoving(ds, selected.id, { x: selected.xNorm, y: selected.yNorm }));
   }
 
   /** Confirm of the move: one move_pin; the saved pin replaces the old one in the list (a move never changes the order). On failure the draft stays, with the error. */
@@ -212,7 +222,7 @@
     const id = ds.moving;
     if (!id) return;
     try {
-      const saved = await confirm(() => ds, (s) => (ds = s), (p) => api.movePin(id, p.x, p.y));
+      const saved = await confirm(() => ds, setDraft, (p) => api.movePin(id, p.x, p.y));
       if (saved) pins = pins.map((o) => (o.id === saved.id ? saved : o));
     } catch (e) {
       error = asAppError(e);
@@ -222,7 +232,7 @@
   /** A tap on a stored pin selects it. While a pin is being moved (or saved) other pins wait. */
   function pinTapped(id: string) {
     if (ds.moving || ds.saving) return;
-    ds = cancel(ds);
+    setDraft(cancel(ds));
     selectedId = id;
     jumpedId = null;
   }
@@ -242,7 +252,7 @@
 
   function selectFromList(pin: Observation, jumped = false) {
     if (ds.moving || ds.saving) return;
-    ds = cancel(ds);
+    setDraft(cancel(ds));
     selectedId = pin.id;
     jumpedId = jumped ? pin.id : null;
     viewer?.reveal({ x: pin.xNorm, y: pin.yNorm });
@@ -261,97 +271,101 @@
 </script>
 
 <div class="plan-screen">
-  <div class="topbar">
-    <button class="plain back" onclick={() => back()}>← {t("nav.back")}</button>
-    <strong class="grow title">{plan?.title ?? ""}</strong>
-    <span class="muted">{pins.length === 1 ? t("pin.count_one") : t("pin.count", { count: pins.length })}</span>
-    <button class="icon" onclick={() => go(listRoute(projectId, planId))} disabled={ds.saving || editSaving} aria-label={t("observations.title")} title={t("observations.title")}><Icon name="list" /></button>
-  </div>
-  <ErrorBanner {error} ondismiss={() => (error = null)} />
+  <!-- While a sheet is open the screen behind it is inert, as the sheet is while the annotation editor is open: the backdrop
+       stops the pointer, this stops Tab/Shift+Tab, so nothing under the sheet can cancel its draft or select a pin (D-027, review 1e). -->
+  <div class="behind" inert={sheetShown}>
+    <div class="topbar">
+      <button class="plain back" onclick={() => back()}>← {t("nav.back")}</button>
+      <strong class="grow title">{plan?.title ?? ""}</strong>
+      <span class="muted">{pins.length === 1 ? t("pin.count_one") : t("pin.count", { count: pins.length })}</span>
+      <button class="icon" onclick={() => go(listRoute(projectId, planId))} disabled={ds.saving || editSaving} aria-label={t("observations.title")} title={t("observations.title")}><Icon name="list" /></button>
+    </div>
+    <ErrorBanner {error} ondismiss={() => (error = null)} />
 
-  <div class="body">
-    <div class="stage">
-      <div class="view">
-      {#if stage.main === "viewer" && manifest && info}
-        <PlanViewer
-          bind:this={viewer}
-          {manifest}
-          dir={info.dir}
-          pins={shownPins}
-          draft={ds.draft}
-          draftLabel={moved?.marker ?? null}
-          {selectedId}
-          adding={ds.adding}
-          ontap={(p) => (ds = tap(ds, p))}
-          onpintap={pinTapped}
-          ondraftmove={(p) => (ds = moveDraft(ds, p))}
-          onready={() => devlog(`plan ${planId}: first view ${(performance.now() - opened).toFixed(0)} ms after opening`)}
-        />
-        {#if stage.chip === "progress"}
-          <div class="chip">{t("viewer.detail_progress", { percent })}</div>
-        {:else if stage.chip === "retry"}
-          <div class="chip failed">{t("viewer.detail_failed")} <button onclick={prepare}>{t("viewer.retry")}</button></div>
-        {/if}
-      {:else if stage.main === "failed"}
-        <div class="centre">
-          <p>{t("viewer.failed")}</p>
-          <button class="primary" onclick={prepare}>{t("viewer.retry")}</button>
-        </div>
-      {:else}
-        <div class="centre">
-          <p><strong>{t("viewer.preparing")}</strong></p>
-          {#if progress}
-            <div class="bar"><div style={`width:${percent}%`}></div></div>
-            <p class="muted">{t("viewer.preparing_detail", { percent })}</p>
+    <div class="body">
+      <div class="stage">
+        <div class="view">
+        {#if stage.main === "viewer" && manifest && info}
+          <PlanViewer
+            bind:this={viewer}
+            {manifest}
+            dir={info.dir}
+            pins={shownPins}
+            draft={ds.draft}
+            draftLabel={moved?.marker ?? null}
+            {selectedId}
+            adding={ds.adding}
+            ontap={(p) => setDraft(tap(ds, p))}
+            onpintap={pinTapped}
+            ondraftmove={(p) => setDraft(moveDraft(ds, p))}
+            onready={() => devlog(`plan ${planId}: first view ${(performance.now() - opened).toFixed(0)} ms after opening`)}
+          />
+          {#if stage.chip === "progress"}
+            <div class="chip">{t("viewer.detail_progress", { percent })}</div>
+          {:else if stage.chip === "retry"}
+            <div class="chip failed">{t("viewer.detail_failed")} <button onclick={prepare}>{t("viewer.retry")}</button></div>
           {/if}
+        {:else if stage.main === "failed"}
+          <div class="centre">
+            <p>{t("viewer.failed")}</p>
+            <button class="primary" onclick={prepare}>{t("viewer.retry")}</button>
+          </div>
+        {:else}
+          <div class="centre">
+            <p><strong>{t("viewer.preparing")}</strong></p>
+            {#if progress}
+              <div class="bar"><div style={`width:${percent}%`}></div></div>
+              <p class="muted">{t("viewer.preparing_detail", { percent })}</p>
+            {/if}
+          </div>
+        {/if}
         </div>
-      {/if}
+
+        {#if manifest}
+          <div class="actions-bar" class:compact={selected !== null && !ds.draft && !ds.adding}>
+            {#if ds.moving}
+              <span class="grow hint">{t("pin.move_hint")}</span>
+              <button onclick={() => setDraft(cancel(ds))} disabled={ds.saving}>{t("common.cancel")}</button>
+              <button class="primary" onclick={confirmMove} disabled={ds.saving}>{t("common.confirm")}</button>
+            {:else if ds.draft}
+              <span class="grow">{t("pin.draft")}</span>
+              <button onclick={() => setDraft(cancel(ds))} disabled={ds.saving}>{t("common.cancel")}</button>
+              <button class="primary" onclick={() => (sheet = "create")} disabled={ds.saving}>{t("common.next")}</button>
+            {:else if ds.adding}
+              <span class="grow">{t("viewer.tap_hint")}</span>
+              <button onclick={() => setDraft(cancel(ds))}>{t("common.cancel")}</button>
+            {:else if selected}
+              <span class="grow hint" title={t("pin.label", { ref: selected.ref })}>{t("pin.label", { ref: selected.ref })}</span>
+              <button class="icon" onclick={() => (sheet = "edit")} aria-label={t("pin.edit")} title={t("pin.edit")}><Icon name="edit" /></button>
+              <button class="icon" onclick={startMove} aria-label={t("pin.move")} title={t("pin.move")}><Icon name="move" /></button>
+              <button class="icon danger" onclick={() => (toDelete = selected)} aria-label={t("common.delete")} title={t("common.delete")}><Icon name="trash" /></button>
+              <button class="icon" onclick={() => (selectedId = null)} aria-label={t("common.close")} title={t("common.close")}><Icon name="close" /></button>
+              <button class="primary add" onclick={startAdd} aria-label={t("pin.add")} title={t("pin.add")}>+</button>
+            {:else}
+              <span class="grow"></span>
+              <button onclick={() => viewer?.fitView()}>{t("viewer.fit")}</button>
+              <button class="primary add" onclick={startAdd} aria-label={t("pin.add")} title={t("pin.add")}>+</button>
+            {/if}
+          </div>
+        {/if}
       </div>
 
-      {#if manifest}
-        <div class="actions-bar" class:compact={selected !== null && !ds.draft && !ds.adding}>
-          {#if ds.moving}
-            <span class="grow hint">{t("pin.move_hint")}</span>
-            <button onclick={() => (ds = cancel(ds))} disabled={ds.saving}>{t("common.cancel")}</button>
-            <button class="primary" onclick={confirmMove} disabled={ds.saving}>{t("common.confirm")}</button>
-          {:else if ds.draft}
-            <span class="grow">{t("pin.draft")}</span>
-            <button onclick={() => (ds = cancel(ds))} disabled={ds.saving}>{t("common.cancel")}</button>
-            <button class="primary" onclick={() => (sheet = "create")} disabled={ds.saving}>{t("common.next")}</button>
-          {:else if ds.adding}
-            <span class="grow">{t("viewer.tap_hint")}</span>
-            <button onclick={() => (ds = cancel(ds))}>{t("common.cancel")}</button>
-          {:else if selected}
-            <span class="grow hint" title={t("pin.label", { ref: selected.ref })}>{t("pin.label", { ref: selected.ref })}</span>
-            <button class="icon" onclick={() => (sheet = "edit")} aria-label={t("pin.edit")} title={t("pin.edit")}><Icon name="edit" /></button>
-            <button class="icon" onclick={startMove} aria-label={t("pin.move")} title={t("pin.move")}><Icon name="move" /></button>
-            <button class="icon danger" onclick={() => (toDelete = selected)} aria-label={t("common.delete")} title={t("common.delete")}><Icon name="trash" /></button>
-            <button class="icon" onclick={() => (selectedId = null)} aria-label={t("common.close")} title={t("common.close")}><Icon name="close" /></button>
-            <button class="primary add" onclick={startAdd} aria-label={t("pin.add")} title={t("pin.add")}>+</button>
-          {:else}
-            <span class="grow"></span>
-            <button onclick={() => viewer?.fitView()}>{t("viewer.fit")}</button>
-            <button class="primary add" onclick={startAdd} aria-label={t("pin.add")} title={t("pin.add")}>+</button>
-          {/if}
-        </div>
-      {/if}
+      <aside class="panel">
+        <h2>{t("pin.list")}</h2>
+        {#if pins.length === 0}
+          <p class="muted">{t("pin.list_empty")}</p>
+        {:else}
+          <ul class="list">
+            {#each pins as pin (pin.id)}
+              <li><button class="pin-row" class:active={pin.id === selectedId} onclick={() => selectFromList(pin)} disabled={ds.moving !== null}>{t("pin.label", { ref: pin.ref })}</button></li>
+            {/each}
+          </ul>
+        {/if}
+      </aside>
     </div>
-
-    <aside class="panel">
-      <h2>{t("pin.list")}</h2>
-      {#if pins.length === 0}
-        <p class="muted">{t("pin.list_empty")}</p>
-      {:else}
-        <ul class="list">
-          {#each pins as pin (pin.id)}
-            <li><button class="pin-row" class:active={pin.id === selectedId} onclick={() => selectFromList(pin)} disabled={ds.moving !== null}>{t("pin.label", { ref: pin.ref })}</button></li>
-          {/each}
-        </ul>
-      {/if}
-    </aside>
   </div>
 
-  {#if sheet === "create" && ds.draft}
+  {#if createShown}
     <ObservationSheet {projectId} initial={restoredDraft?.mode === "create" ? restoredDraft : null} onstate={sheetState} saving={ds.saving} error={sheetError} onsave={saveObservation} oncancel={closeSheet} ondismiss={() => (sheetError = null)} />
   {:else if sheet === "edit" && selected}
     <ObservationSheet {projectId} observation={selected} initial={restoredDraft?.mode === "edit" ? restoredDraft : null} onstate={sheetState} saving={editSaving} error={sheetError} onsave={saveEdit} oncancel={closeSheet} ondismiss={() => (sheetError = null)} />
@@ -368,9 +382,10 @@
 
 <style>
   .plan-screen { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .behind { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .topbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 12px; background: #fff; border-bottom: 1px solid #ddd; }
   .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .plan-screen > :global(.banner) { margin: 0.4rem 12px; }
+  .behind > :global(.banner) { margin: 0.4rem 12px; }
   .body { flex: 1; min-height: 0; display: flex; }
   .stage { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .view { flex: 1; min-height: 0; position: relative; }

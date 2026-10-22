@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cancel, confirm, moveDraft, noDraft, startAdding, startMoving, tap, type DraftState } from "./draft.ts";
+import { cancel, confirm, moveDraft, noDraft, sheetAfter, showsCreateSheet, startAdding, startMoving, tap, type DraftState, type SheetMode } from "./draft.ts";
 import { isTap } from "./gestures.ts";
 
 function store(init: DraftState = noDraft) {
@@ -111,6 +111,53 @@ test("a failed move keeps the draft and the pin's identity, so Confirm can be tr
   await assert.rejects(confirm(st.get, st.set, async () => { throw new Error("db"); }));
   assert.deepEqual(st.get(), { adding: false, draft: { x: 0.25, y: 0.75 }, saving: false, moving: "obs-7" });
   assert.equal(await confirm(st.get, st.set, async () => "saved"), "saved");
+  assert.deepEqual(st.get(), noDraft);
+});
+
+// Review 1e (D-027): the create sheet belongs to the new pin's draft and ends with it.
+
+test("the create sheet shows over the new pin's draft only: not without a draft, not over a move's draft", () => {
+  const draft = placed({ x: 0.3, y: 0.3 });
+  assert.ok(showsCreateSheet("create", draft));
+  assert.ok(showsCreateSheet("create", { ...draft, saving: true }), "while Save is in flight");
+  assert.ok(!showsCreateSheet("create", noDraft), "no draft");
+  assert.ok(!showsCreateSheet("create", startAdding(noDraft)), "add-pin mode before the tap");
+  assert.ok(!showsCreateSheet("create", moving()), "a move's draft is never a new observation");
+  assert.ok(!showsCreateSheet("create", { ...moving(), saving: true }));
+  assert.ok(!showsCreateSheet("edit", draft) && !showsCreateSheet(null, draft), "only the create sheet");
+});
+
+test("a create sheet closes when its draft is cleared or becomes a move; the edit sheet is not tied to the draft", () => {
+  const draft = placed({ x: 0.3, y: 0.3 });
+  assert.equal(sheetAfter("create", moveDraft(draft, { x: 0.4, y: 0.4 })), "create", "dragging the draft keeps it");
+  assert.equal(sheetAfter("create", cancel(draft)), null, "Cancel, Back and a selected pin all cancel()");
+  assert.equal(sheetAfter("create", cancel({ ...draft, saving: true })), "create", "a cancel ignored while saving keeps it");
+  assert.equal(sheetAfter("create", moving()), null, "never into a move");
+  assert.equal(sheetAfter("edit", noDraft), "edit");
+  assert.equal(sheetAfter("edit", moving()), "edit");
+  assert.equal(sheetAfter(null, draft), null, "never opens a sheet");
+});
+
+test("the draft cancelled behind an open create sheet, then Move: the create sheet does not come back", () => {
+  let sheet: SheetMode = "create";
+  let s = placed({ x: 0.3, y: 0.3 });
+  const set = (n: DraftState) => { s = n; sheet = sheetAfter(sheet, n); };
+  set(cancel(s)); // Cancel reached behind the sheet by Tab, or a pin selected in the side list
+  assert.equal(sheet, null);
+  set(startMoving(s, "obs-1", { x: 0.4, y: 0.6 }));
+  assert.ok(!showsCreateSheet(sheet, s), "no create sheet over the move, so its Save cannot create");
+  assert.ok(!showsCreateSheet("create", s), "and a create mode left over by any other path would not show over it either");
+});
+
+test("Save: the create sheet stays while the call is in flight and after a failure, and closes with the draft on success", async () => {
+  let sheet: SheetMode = "create";
+  const st = store(placed({ x: 0.5, y: 0.5 }));
+  const set = (n: DraftState) => { st.set(n); sheet = sheetAfter(sheet, n); };
+  await assert.rejects(confirm(st.get, set, async () => { assert.equal(sheet, "create", "in flight"); throw new Error("db"); }));
+  assert.equal(sheet, "create", "a failed Save keeps the sheet with its error");
+  assert.ok(showsCreateSheet(sheet, st.get()));
+  assert.equal(await confirm(st.get, set, async () => "obs"), "obs");
+  assert.equal(sheet, null);
   assert.deepEqual(st.get(), noDraft);
 });
 

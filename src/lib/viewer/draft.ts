@@ -70,3 +70,20 @@ export async function confirm<T>(
     throw e;
   }
 }
+
+/** The plan screen's observation sheet: "create" for the new pin's draft (Next), "edit" for the
+ * selected pin, null when closed. */
+export type SheetMode = "create" | "edit" | null;
+
+/** The create sheet is the second step of placing a new pin: it shows only over that pin's draft,
+ * never without a draft and never over a move's draft (D-027, review 1e). */
+export function showsCreateSheet(sheet: SheetMode, s: DraftState): boolean {
+  return sheet === "create" && s.draft !== null && s.moving === null;
+}
+
+/** The sheet once the draft has become `s`: a create sheet ends with its draft (Cancel from
+ * anywhere, Back, a successful Save) and never carries over into a move; the edit sheet does not
+ * depend on the draft. */
+export function sheetAfter(sheet: SheetMode, s: DraftState): SheetMode {
+  return sheet === "create" && !showsCreateSheet(sheet, s) ? null : sheet;
+}
