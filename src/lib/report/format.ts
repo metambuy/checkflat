@@ -10,13 +10,14 @@ export function formatDateTime(d: Date): string {
 }
 
 /**
- * `17.6 MB` / `17,6 MB` (the language's decimal separator), `640 KB` below 1 MB. Decimal units
+ * `17.6 MB` / `17,6 MB` (the language's decimal separator), `640 KB` below 1 MB; a non-breaking
+ * space before the unit, so a wrapped line never splits a size. Decimal units
  * (1 MB = 1,000,000 bytes), as Android's file sizes and the mail apps' attachment limits count.
  */
 export function formatSize(bytes: number, lang: Lang): string {
   const locale = lang === "pt" ? "pt-PT" : "en-GB";
   const kb = bytes > 0 ? Math.max(1, Math.round(bytes / 1000)) : 0;
-  if (kb < 1000) return `${kb} KB`;
+  if (kb < 1000) return `${kb}\u00a0KB`;
   const mb = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(bytes / 1_000_000);
-  return `${mb} MB`;
+  return `${mb}\u00a0MB`;
 }

@@ -42,8 +42,11 @@
 
   onMount(() => {
     void isAndroid().then((a) => (android = a));
-    const job = runningJob<ReportResult>(projectId);
-    if (job) follow(job);
+    const running = runningJob<ReportResult, Lang>(projectId);
+    if (running) {
+      reportLang = running.info;
+      follow(running.job);
+    }
     api
       .latestReport(projectId)
       .then((r) => {
@@ -56,7 +59,8 @@
   function generate() {
     skippedPhotos = 0;
     timings = null;
-    follow(startJob(projectId, () => api.generateReport(projectId, reportLang, deviceTimeZone(), utcOffsetMin())));
+    const l = reportLang;
+    follow(startJob(projectId, l, () => api.generateReport(projectId, l, deviceTimeZone(), utcOffsetMin())));
   }
 
   async function hand(action: "open" | "share") {
@@ -78,8 +82,8 @@
 
 <section class="card" aria-labelledby="report-heading">
   <h2 id="report-heading">{t("report.section")}</h2>
-  <div class="row">
-    <label class="row">
+  <div class="row controls">
+    <label class="lang">
       <span class="muted">{t("report.language")}</span>
       <select bind:value={reportLang} disabled={generating}>
         <option value="en">{t("lang.en")}</option>
@@ -118,6 +122,9 @@
 
 <style>
   h2 { margin-top: 0; }
+  .controls { align-items: flex-end; }
+  .lang { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
+  .lang select { min-height: 44px; min-width: 4.5rem; }
   .progress { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.5rem; }
   progress { width: 100%; height: 6px; }
   .latest { margin: 0.5rem 0; }

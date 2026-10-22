@@ -9,25 +9,25 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("one job per project while it runs; a remounted screen gets the same job", async () => {
+test("one job per project while it runs; a remounted screen gets the same job and its info", async () => {
   const d = deferred<string>();
   let runs = 0;
-  const first = startJob("p", () => (runs++, d.promise));
-  const second = startJob("p", () => (runs++, Promise.resolve("other")));
+  const first = startJob("p", "en", () => (runs++, d.promise));
+  const second = startJob("p", "pt", () => (runs++, Promise.resolve("other")));
   assert.equal(second, first);
-  assert.equal(runningJob("p"), first);
+  assert.deepEqual(runningJob("p"), { job: first, info: "en" }, "the first run's info, not the second call's");
   assert.equal(runs, 1);
   assert.equal(runningJob("q"), null, "other projects are independent");
   d.resolve("done");
   assert.equal(await first, "done");
   assert.equal(runningJob("p"), null, "settled jobs are forgotten");
-  assert.equal(await startJob("p", () => (runs++, Promise.resolve("again"))), "again");
+  assert.equal(await startJob("p", "pt", () => (runs++, Promise.resolve("again"))), "again");
   assert.equal(runs, 2);
 });
 
 test("a failed job is forgotten too, and its error reaches whoever awaits it", async () => {
   const d = deferred<string>();
-  const job = startJob("f", () => d.promise);
+  const job = startJob("f", null, () => d.promise);
   d.reject(new Error("boom"));
   await assert.rejects(job, /boom/);
   assert.equal(runningJob("f"), null);

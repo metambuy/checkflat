@@ -9,12 +9,12 @@ test("date and time as the report's captions, in local time, zero-padded", () =>
 });
 
 test("sizes in decimal units with the language's decimal separator", () => {
-  assert.equal(formatSize(17_612_345, "en"), "17.6 MB");
-  assert.equal(formatSize(17_612_345, "pt"), "17,6 MB");
-  assert.equal(formatSize(1_000_000, "en"), "1.0 MB");
-  assert.equal(formatSize(999_499, "en"), "999 KB");
-  assert.equal(formatSize(999_500, "en"), "1.0 MB", "no '1000 KB'");
-  assert.equal(formatSize(640_000, "pt"), "640 KB");
-  assert.equal(formatSize(300, "en"), "1 KB", "a non-empty file is at least 1 KB");
-  assert.equal(formatSize(0, "en"), "0 KB");
+  assert.equal(formatSize(17_612_345, "en"), "17.6\u00a0MB");
+  assert.equal(formatSize(17_612_345, "pt"), "17,6\u00a0MB");
+  assert.equal(formatSize(1_000_000, "en"), "1.0\u00a0MB");
+  assert.equal(formatSize(999_499, "en"), "999\u00a0KB");
+  assert.equal(formatSize(999_500, "en"), "1.0\u00a0MB", "no '1000 KB'");
+  assert.equal(formatSize(640_000, "pt"), "640\u00a0KB");
+  assert.equal(formatSize(300, "en"), "1\u00a0KB", "a non-empty file is at least 1 KB");
+  assert.equal(formatSize(0, "en"), "0\u00a0KB");
 });
