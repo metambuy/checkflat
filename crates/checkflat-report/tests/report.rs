@@ -49,6 +49,18 @@ fn make(conn: &Connection, data: &Path, pid: &str, lang: Lang) -> ReportInput {
 }
 
 #[test]
+fn the_cover_date_is_the_reports_own_instant() {
+    let dir = tempfile::tempdir().unwrap();
+    let (conn, pid) = fixture(dir.path());
+    let mut src = collect(&conn, dir.path(), &pid, Lang::En, "Europe/Lisbon", 60).unwrap();
+    assert!(checkflat_core::clock::parse_iso(&src.created_at).is_some(), "{}", src.created_at);
+    // 23:30 UTC on the 24th is already the 25th in Lisbon (UTC+1 until the DST change).
+    src.created_at = "2026-10-24T23:30:00.000Z".into();
+    assert_eq!(src.clock.iso_date(&src.created_at), "2026-10-25");
+    assert_eq!(prepare(dir.path(), src).unwrap().data.date, "25.10.2026");
+}
+
+#[test]
 fn report_has_a_cover_and_the_observations_in_a_continuous_list_newest_first() {
     let dir = tempfile::tempdir().unwrap();
     let (conn, pid) = fixture(dir.path());

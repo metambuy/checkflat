@@ -31,4 +31,18 @@ impl<R: Runtime> CameraCapture<R> {
     pub fn display_name(&self, _uri: String) -> crate::Result<Option<String>> {
         Ok(None)
     }
+
+    /// Android only (Windows saves the report instead, Sprint 6b).
+    pub fn view_pdf(&self, _path: String) -> crate::Result<()> {
+        Err(crate::Error::Unsupported)
+    }
+
+    pub fn share_pdf(&self, _path: String, _title: String) -> crate::Result<()> {
+        Err(crate::Error::Unsupported)
+    }
+
+    /// The package version; desktop builds carry no build number.
+    pub fn app_version(&self) -> crate::Result<AppVersion> {
+        Ok(AppVersion { version_name: self.0.package_info().version.to_string(), version_code: None })
+    }
 }

@@ -24,14 +24,8 @@
             </intent-filter>
         </activity>
 
-        <provider
-          android:name="androidx.core.content.FileProvider"
-          android:authorities="${applicationId}.fileprovider"
-          android:exported="false"
-          android:grantUriPermissions="true">
-          <meta-data
-            android:name="android.support.FILE_PROVIDER_PATHS"
-            android:resource="@xml/file_paths" />
-        </provider>
+        <!-- No FileProvider here: the template's one (external-path "." + cache-path ".") was removed in
+             Sprint 6a (D-028). The camera-capture plugin's CaptureFileProvider is the app's only one, and
+             CI fails if the release APK declares another (scripts/check-fileprovider.sh). -->
     </application>
 </manifest>

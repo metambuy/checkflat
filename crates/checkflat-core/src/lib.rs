@@ -13,6 +13,7 @@ pub mod paths;
 pub mod pdf;
 pub mod photos;
 pub mod refs;
+pub mod reports;
 pub mod repo;
 
 pub use error::{CoreError, Result};

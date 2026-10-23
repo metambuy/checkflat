@@ -6,11 +6,23 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    #[error("camera capture is only available on Android")]
+    #[error("only available on Android")]
     Unsupported,
     #[cfg(mobile)]
     #[error(transparent)]
     PluginInvoke(#[from] tauri::plugin::mobile::PluginInvokeError),
+}
+
+impl Error {
+    /// The code a Kotlin `invoke.reject(message, code)` gave, if this error is such a rejection
+    /// (e.g. `no_app` from `viewPdf`/`sharePdf`).
+    pub fn rejected_code(&self) -> Option<&str> {
+        match self {
+            #[cfg(mobile)]
+            Error::PluginInvoke(tauri::plugin::mobile::PluginInvokeError::InvokeRejected(r)) => r.code.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 impl Serialize for Error {

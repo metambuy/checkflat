@@ -40,9 +40,9 @@ impl Clock {
         self.format(iso, "%d.%m.%Y %H:%M")
     }
 
-    /// Today's local date, `dd.mm.yyyy`.
-    pub fn today(&self) -> String {
-        Timestamp::now().to_zoned(self.tz.clone()).strftime("%d.%m.%Y").to_string()
+    /// `yyyy-mm-dd` of a stored UTC timestamp, in local time (the date in a report's file name, D-028).
+    pub fn iso_date(&self, iso: &str) -> String {
+        self.format(iso, "%Y-%m-%d")
     }
 
     fn format(&self, iso: &str, fmt: &str) -> String {
@@ -70,6 +70,10 @@ mod tests {
         assert_eq!(lisbon.date_time("2026-10-25T01:30:00.000Z"), "25.10.2026 01:30", "the repeated hour");
         // Midnight crossing changes the date too.
         assert_eq!(lisbon.date("2026-07-01T23:30:00.000Z"), "02.07.2026");
+        // The file-name date (D-028) follows the same rules: local date of the instant.
+        assert_eq!(lisbon.iso_date("2026-07-01T23:30:00.000Z"), "2026-07-02");
+        assert_eq!(lisbon.iso_date("2026-10-24T23:30:00.000Z"), "2026-10-25", "UTC+1 before the change");
+        assert_eq!(lisbon.iso_date("2026-10-25T23:30:00.000Z"), "2026-10-25", "UTC+0 after it");
         let azores = Clock::new("Atlantic/Azores", 0);
         assert_eq!(azores.date_time("2026-10-20T10:00:00.000Z"), "20.10.2026 10:00");
     }
@@ -81,6 +85,5 @@ mod tests {
         let c = Clock::new("", -210);
         assert_eq!(c.date_time("2026-10-30T10:00:00.000Z"), "30.10.2026 06:30");
         assert_eq!(Clock::fixed(0).date_time("not a date"), "not a date");
-        assert_eq!(Clock::fixed(0).today().len(), "12.10.2026".len());
     }
 }

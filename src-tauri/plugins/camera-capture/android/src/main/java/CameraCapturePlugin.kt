@@ -17,7 +17,9 @@ import android.provider.OpenableColumns
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.core.app.ShareCompat
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -36,15 +38,22 @@ import java.util.Locale
 
 /**
  * The app's Android bridge: system camera (`capture`), system Photo Picker (`pickImage`, no
- * storage permission) and display names of picked files. Both image commands resolve the path of
- * a file in the app cache, or no path when the user cancelled; HEIC/HEIF is converted to JPEG here
- * because the Rust decoder cannot read it. The capture writes through the plugin's own
- * [CaptureFileProvider] (authority "<applicationId>.cameracapture", declared in this plugin's
- * manifest, cache `captures/` only).
+ * storage permission), display names of picked files, opening and sharing the report
+ * (`viewPdf`, `sharePdf`) and the installed version (`appVersion`). Both image commands resolve
+ * the path of a file in the app cache, or no path when the user cancelled; HEIC/HEIF is converted
+ * to JPEG here because the Rust decoder cannot read it. The capture and the report go through the
+ * plugin's own [CaptureFileProvider] (authority "<applicationId>.cameracapture", declared in this
+ * plugin's manifest; cache `captures/` and `reports/` only, D-022, D-028).
  */
 @InvokeArg
 class DisplayNameArgs {
     var uri: String? = null
+}
+
+@InvokeArg
+class PdfArgs {
+    var path: String? = null
+    var title: String? = null
 }
 
 @TauriPlugin
@@ -315,6 +324,87 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /**
+     * Opens a report copy in a PDF viewer: `ACTION_VIEW` with its FileProvider content URI, type
+     * `application/pdf` and a temporary read grant (FLAG_GRANT_READ_URI_PERMISSION; "Grant URI access"
+     * in https://developer.android.com/training/package-visibility/use-cases, and the FileProvider
+     * reference, https://developer.android.com/reference/androidx/core/content/FileProvider). The
+     * viewer is not looked up first: since Android 11, package visibility filters what
+     * `resolveActivity` sees, and the documented way is to start the intent and catch
+     * ActivityNotFoundException (same use-cases page). That case rejects with code `no_app`.
+     * `path` must be a file under `cacheDir/reports/` (the Rust side copies the report there).
+     */
+    @Command
+    fun viewPdf(invoke: Invoke) {
+        val file = reportCopy(invoke, invoke.parseArgs(PdfArgs::class.java)) ?: return
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uriFor(file), PDF)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        launch(invoke, "view", intent, file)
+    }
+
+    /**
+     * Shares a report copy through the system share sheet (https://developer.android.com/training/sharing/send,
+     * "Send binary content"). ShareCompat puts the stream into ClipData and adds the read grant
+     * (androidx.core 1.5.0, https://developer.android.com/jetpack/androidx/releases/core), and
+     * `Intent.createChooser` carries both onto the chooser intent, so the app picked there can read
+     * the URI (https://developer.android.com/reference/android/content/Intent#createChooser(android.content.Intent,%20java.lang.CharSequence)).
+     * The recipient sees the copy's file name (FileProvider's DISPLAY_NAME). `title` is shown by
+     * choosers that use it (Android's own share sheet ignores it for ACTION_SEND).
+     */
+    @Command
+    fun sharePdf(invoke: Invoke) {
+        val args = invoke.parseArgs(PdfArgs::class.java)
+        val file = reportCopy(invoke, args) ?: return
+        val chooser = ShareCompat.IntentBuilder(activity)
+            .setType(PDF)
+            .setStream(uriFor(file))
+            .setChooserTitle(args.title ?: "")
+            .createChooserIntent()
+        launch(invoke, "share", chooser, file)
+    }
+
+    /** The installed versionName and versionCode (the CI run number, D-021), for the About line. */
+    @Command
+    fun appVersion(invoke: Invoke) {
+        val info = activity.packageManager.getPackageInfo(activity.packageName, 0)
+        invoke.resolve(JSObject().apply {
+            put("versionName", info.versionName ?: "")
+            put("versionCode", PackageInfoCompat.getLongVersionCode(info))
+        })
+    }
+
+    /** The file `args.path` names, if it is a regular file under `cacheDir/reports/`; rejects otherwise. */
+    private fun reportCopy(invoke: Invoke, args: PdfArgs): File? {
+        val file = try {
+            args.path?.let { File(it).canonicalFile }
+        } catch (e: java.io.IOException) {
+            null
+        }
+        val root = File(activity.cacheDir, REPORTS).canonicalPath + File.separator
+        if (file == null || !file.path.startsWith(root) || !file.isFile) {
+            Log.w(TAG, "report: refused path ${args.path}")
+            invoke.reject("not a report copy", "invalid_path")
+            return null
+        }
+        return file
+    }
+
+    private fun uriFor(file: File): Uri = FileProvider.getUriForFile(activity, "${activity.packageName}.$PROVIDER_SUFFIX", file)
+
+    private fun launch(invoke: Invoke, what: String, intent: Intent, file: File) {
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(intent)
+                Log.i(TAG, "$what: started for ${file.name} (${file.length()} bytes)")
+                invoke.resolve()
+            } catch (e: ActivityNotFoundException) {
+                Log.w(TAG, "$what: no app for $PDF")
+                invoke.reject("no app to $what a PDF", NO_APP)
+            }
+        }
+    }
+
     /** Drops cache copies older than a day (the Rust side has long since staged them). */
     private fun purgeOldCache() {
         val cutoff = System.currentTimeMillis() - 24L * 3600 * 1000
@@ -333,6 +423,10 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         const val PROVIDER_SUFFIX = "cameracapture"
         const val CAPTURES = "captures"
         const val PICKS = "picks"
+        // Report copies made by the Rust side (`reports::share_copy`); `reports/` in camera_capture_paths.xml.
+        const val REPORTS = "reports"
+        const val PDF = "application/pdf"
+        const val NO_APP = "no_app"
         const val TARGET_LONG_SIDE = 1600
         // Keep in step with `is_heif` in crates/checkflat-core/src/photos.rs.
         val HEIF_BRANDS = setOf("heic", "heix", "hevc", "hevx", "hevm", "hevs", "heim", "heis", "mif1", "mif2", "msf1")

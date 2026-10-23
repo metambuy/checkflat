@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Only the camera's target files: cacheDir/captures/ -->
+    <!-- The camera's target files: cacheDir/captures/ -->
     <cache-path name="captures" path="captures/" />
+    <!-- Report copies for Open/Share: cacheDir/reports/<project id>/<name>.pdf (D-028).
+         The CI job checks the release APK declares exactly these two paths (scripts/check-fileprovider.sh). -->
+    <cache-path name="reports" path="reports/" />
 </paths>
