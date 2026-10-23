@@ -1,6 +1,6 @@
 // The latest report's line on the project screen (Sprint 6a, D-028): its date in the format of the
 // report's captions and its size as Android shows file sizes (decimal units).
-export type Lang = "en" | "pt";
+import type { Lang } from "../i18n.svelte";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 

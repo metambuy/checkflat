@@ -139,9 +139,14 @@ fn write_via_part(dest: &Path, part: &Path, bytes: &[u8]) -> std::io::Result<()>
 /// The PDF and then the JSON each go through a `.part` file, fsync and rename; **only then** are
 /// the project's earlier PDFs and leftover part files removed, so a failed generation leaves the
 /// previous report usable (its metadata still points at it). If the metadata cannot be written,
-/// the new PDF is removed again and the error returned.
+/// the new PDF is removed again and the error returned. A `name` that is not a safe file name
+/// ([`display_name`] always makes one) is refused (`Validation`) before anything is written:
+/// [`latest`] would not show such a report, and [`share_copy`] would not hand it out.
 pub fn write_report(data_dir: &Path, project_id: &str, stamp: &str, pdf: &[u8], new: NewReport) -> Result<(PathBuf, ReportMeta)> {
     check_id(project_id)?;
+    if !is_safe_name(&new.name) {
+        return Err(CoreError::Validation(format!("report name not safe: {:?}", new.name)));
+    }
     let dest = report_file(project_id, stamp).resolve(data_dir);
     let dir = dest.parent().expect("report_file has a parent").to_path_buf();
     std::fs::create_dir_all(&dir)?;
@@ -404,6 +409,31 @@ mod tests {
         ];
         expected.sort();
         assert_eq!(names(&data.join("reports")), expected);
+    }
+
+    #[test]
+    fn write_refuses_a_name_that_is_not_a_safe_file_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let p = ids::new_id();
+        let too_long = format!("{}.pdf", "a".repeat(252));
+        // `display_name` does not clean `lang`, so a hostile one shows up here, not in a file name.
+        let hostile_lang = display_name("Obra", DATE, "p/t");
+        let unsafe_names = ["", "no-suffix", "../x.pdf", "a/b.pdf", "a\\b.pdf", ".hidden.pdf", "a\nb.pdf", "a:b.pdf", &too_long, &hostile_lang];
+
+        // Nothing is written: not the PDF, not the metadata, not even the reports dir.
+        for bad in unsafe_names {
+            let err = write_report(data, &p, "20261012T100000000Z", b"%PDF-1", new_report(bad));
+            assert!(matches!(err, Err(CoreError::Validation(_))), "{bad:?}");
+        }
+        assert!(!data.join("reports").exists());
+
+        // A refused name leaves the previous report as it was.
+        let (_, before) = write_report(data, &p, "20261012T100000000Z", b"%PDF-1", new_report("Obra - 2026-10-12.pdf")).unwrap();
+        let listing = names(&data.join("reports"));
+        assert!(write_report(data, &p, "20261012T110000000Z", b"%PDF-2", new_report("../x.pdf")).is_err());
+        assert_eq!(names(&data.join("reports")), listing);
+        assert_eq!(latest(data, &p).unwrap(), Some(before));
     }
 
     #[test]

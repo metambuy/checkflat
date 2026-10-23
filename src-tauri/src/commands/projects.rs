@@ -6,7 +6,7 @@ use tauri::AppHandle;
 
 use crate::commands::report;
 use crate::error::{AppError, AppResult};
-use crate::state::{run_db, run_db_with};
+use crate::state::{run_db, run_db_with, run_fs};
 
 #[tauri::command]
 pub async fn list_projects(app: AppHandle) -> AppResult<Vec<ProjectSummary>> {
@@ -45,8 +45,9 @@ pub async fn delete_project(app: AppHandle, id: String) -> AppResult<()> {
     })
     .await?;
     let root = report::share_root(&app)?;
-    if let Err(e) = reports::remove_share_copies(&root, &id) {
-        log::warn!("project {id} deleted but its share copies could not be removed: {e}");
+    let share_id = id.clone();
+    if let Err(e) = run_fs(app, move |_| reports::remove_share_copies(&root, &share_id)).await {
+        log::warn!("project {id} deleted but its share copies could not be removed: {}", e.message);
     }
     Ok(())
 }
