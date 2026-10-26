@@ -695,7 +695,7 @@ The approved plan is Part 6b of `docs/sprint-6-plan.md`. Martín's decisions in 
 - **Tests:** 141 Rust (136 after 6a), 130 frontend (126). `pnpm check`, `cargo test --workspace --all-features` and clippy `-D warnings` are clean.
   - New: the share-copy layout, reuse and purge; `save_copy`; the live-leftover sweep; the hold-open tests; quantisation; `report_running`; `followBackend`; `watchRunning`.
   - Mutation-checked: without the reuse, the share-copy test fails; without the leftover rule, the new sweep test fails.
-- **APK** (CI run 77, the last code change): **38,657,494 B against 38,636,742 B on `main` (runs 69/70), +20.3 KB.** The two guards pass (no `dev_seed_observations`; one narrow FileProvider).
+- **APK** (CI run 79, head `1c172f8`, the last change to what the app contains — the photo layout is in the report template, compiled into the binary): **38,658,266 B against 38,636,742 B on `main` (runs 69/70), +21.5 KB** (run 77, before the layout change: 38,657,494 B, +20.3 KB). The commits after run 79 change docs only. The two guards pass (no `dev_seed_observations`; one narrow FileProvider).
 
 **P30 measurement — current (A) vs smaller (B) images** (2026-10-26).
 - **Builds:** two local `dev-seed` builds with the CI key and versionCode 70, installed with `adb install -r` over CI build 67, data kept. A = the plan commit (`a85ff93`, the `main` code); B = A + the image commit (`d281c39`) only.

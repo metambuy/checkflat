@@ -18,7 +18,7 @@
   - Checked on the Android 15 emulator (Home, Back, kill, page reload) and the P30 (another app for 30 s, "No background processes", Back). No foreground service needed.
 - **Version 0.1.0.** The About line shows the build number on Windows too (CI's run number, `CHECKFLAT_BUILD`).
 - **Windows CI** now runs the core tests too, including tests that hold files open the way Acrobat does; its first run found and fixed a Windows-only test defect. The manual Windows test moves to the preview (the friend's laptop); D-029 holds the checklist, results pending.
-- Tests: Rust 144 (was 136), frontend 130 (was 126). APK +20.3 KB (CI run 77). Mac dev check of Open / Save a copy (Martín): "behaved as expected".
+- Tests: Rust 144 (was 136), frontend 130 (was 126). APK +21.5 KB (CI run 79, the last change to the app's contents). Mac dev check of Open / Save a copy (Martín): "behaved as expected".
 
 ## Sprint 6a — 2026-10-22 (report Open/Share on Android, app version, one narrow FileProvider; D-028)
 - **Report card** on the project screen (replaces Sprint 5's temporary action): language chosen at generation, an indeterminate "Generating report…" with the controls disabled, then the **latest report** — date, language, pages, size — with **Open** and **Share** on Android ("Abrir" / "Partilhar"). The run outlives the screen: leaving and coming back shows it still running. One report at a time (`report_busy`); a project whose report is being generated cannot be deleted meanwhile.
