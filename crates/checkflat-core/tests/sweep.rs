@@ -15,7 +15,17 @@ fn touch(p: &Path, bytes: &[u8]) {
 
 fn set_old(p: &Path, days: u64) {
     let t = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 24 * 3600);
-    let f = fs::File::options().write(true).open(p).or_else(|_| fs::File::open(p)).unwrap();
+    let mut options = fs::File::options();
+    options.write(true);
+    // Windows opens a directory only with FILE_FLAG_BACKUP_SEMANTICS (found by the core tests' first
+    // Windows run, D-029); Unix opens it read-only below, which is enough to set its times.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        options.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    }
+    let f = options.open(p).or_else(|_| fs::File::open(p)).unwrap();
     f.set_modified(t).unwrap();
 }
 
