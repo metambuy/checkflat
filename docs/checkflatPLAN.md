@@ -31,7 +31,7 @@ Offline-first app for real-estate site visits: load PDF plans, drop numbered pin
 4. **Pin in the plan crop shows the marker and the observation number:** the same short label as the app pin (`3`, or `PC-01` per fraction).
 5. **Header:** the plan title next to the project name.
 6. Unchanged and confirmed: captions `n. dd.mm.yyyy hh:mm`, newest first by creation date, cover contents, crop ≈ 20 % of the sheet.
-- **Still open:** whether the crop needs more context than ≈ 20 % (the reply was only "sim", ambiguous); the Aproplan sample pages (not sent yet); the printed sample for the Sprint 6 size options (D-024) — the two sample PDFs exist (D-029), Martín's print choice and then the client's confirmation in the preview.
+- **Still open:** whether the crop needs more context than ≈ 20 % (the reply was only "sim", ambiguous); the Aproplan sample pages (not sent yet); the printed sample for the Sprint 6 size options (D-024) — Martín printed the two sample PDFs (D-029) and chose the smaller images ("no visible difference in print"); the client confirms in the preview.
 
 ## 1. Concept
 - **Project** (a building/site) → contains **Plans** (one PDF each) and **Visits** (dated sessions).

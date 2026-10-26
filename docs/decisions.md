@@ -730,7 +730,7 @@ The approved plan is Part 6b of `docs/sprint-6-plan.md`. Martín's decisions in 
   - **16:** the A1 legend with colour swatches.
   - **22:** a pin in the corner, with grey fills and hatching.
 
-  A 200 dpi render of page 22 shows the two crops practically the same. **Martín's print choice: pending.** The client confirms in the preview.
+  A 200 dpi render of page 22 shows the two crops practically the same. **Martín's print choice (2026-10-26): B, the smaller images — "no visible difference in print".** So the constants stay as built (16 grey levels, 640 px, q75); the client confirms in the preview.
 
 **App-switch checks.**
 
@@ -797,7 +797,7 @@ The approved plan is Part 6b of `docs/sprint-6-plan.md`. Martín's decisions in 
 A short PT guide for the tester (install and SmartScreen, his own plan, a photo from a file, annotation with the mouse, Esc closes only the editor, close and reopen, Gerar/Abrir/Guardar uma cópia, Abrir again with the PDF open, phone and laptop data separate for now) went to Martín as plain text for the tester's guide.
 
 **Open after 6b.**
-- Martín's print choice between the samples, then the client's confirmation in the preview. A different choice is a constants change plus a re-measure with the same script.
+- The client's confirmation of the smaller images in the preview (Martín printed both samples and chose B). A different outcome is a constants change plus a re-measure with the same script.
 - The Windows results (pending preview).
 - HyperOS itself is untested; P2 stands in for it. The client's phone remains unmeasured.
 - A dead WebView renderer takes the app down: nothing in wry 0.55 or Tauri handles `onRenderProcessGone`. For the report that is the same as a kill (H1–H3).

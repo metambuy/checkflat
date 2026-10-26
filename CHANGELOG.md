@@ -5,7 +5,7 @@
   - plan crops are always greyscale with 16 grey levels (colour on a plan prints grey; the pin and the overview's box stay in colour)
   - photos are 640 px at JPEG q75 (`CROP_GREY_LEVELS`, `REPORT_PHOTO_PX`, `REPORT_JPEG_QUALITY`)
   - On the P30, project "Perf A1 4a" (56 observations, 166 photos, 85 pages): **20.8 → 9.4 MB, peak memory ≈ 720 → ≈ 534 MB, 24 → 21 s.** A new on-device sampler (`spikes/pss-app-fast.sh`) showed the old 1.5 s sampling missed the top of the 2 s spike, so the old images were ≈ 70 MB over the 650 MB limit.
-  - The two sample PDFs went to Martín for a printed comparison; the client confirms in the preview.
+  - Martín printed both sample PDFs and chose the smaller images ("no visible difference in print"); the client confirms in the preview.
 - **Windows:** the report card has **Open** (the default PDF app) and **"Save a copy…"** ("Guardar uma cópia…"), with "Saved: <name>" after a save.
   - The save dialog is opened from Rust and proposes the readable name in Documents, so the WebView never passes a path. A file held open by a PDF viewer gives "Could not save the copy… close it and try again".
   - The annotation editor's hint mentions the mouse on desktop.
