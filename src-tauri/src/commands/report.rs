@@ -16,7 +16,6 @@ use checkflat_report::{self as report, Stats};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_camera_capture::CameraCaptureExt;
-use tauri_plugin_dialog::DialogExt;
 
 use crate::error::{AppError, AppResult};
 use crate::state::{run_db_with, run_fs, run_fs_with};
@@ -192,10 +191,22 @@ pub async fn share_report(app: AppHandle, project_id: String, title: String) -> 
 /// or `None` when the dialog is cancelled. The dialog asks before replacing a file. Its PDF filter
 /// is also the default extension, so a name typed without `.pdf` gets it, and the replace prompt
 /// sees the final name. A copy that cannot be written (the file held open by a PDF viewer, a
-/// read-only folder) is `save_failed`. `title` is the dialog's title. On Android the dialog returns
-/// a content URI, not a path; the card never offers the action there.
+/// read-only folder) is `save_failed`. `title` is the dialog's title. Desktop only: Android shares
+/// the report, and its card never offers this action.
 #[tauri::command]
 pub async fn save_report_copy(app: AppHandle, window: tauri::Window, project_id: String, title: String) -> AppResult<Option<String>> {
+    #[cfg(desktop)]
+    return save_report_copy_desktop(app, window, project_id, title).await;
+    #[cfg(mobile)]
+    {
+        let _ = (app, window, project_id, title);
+        Err(AppError::new("internal", "Save a copy is a desktop action; Android shares the report"))
+    }
+}
+
+#[cfg(desktop)]
+async fn save_report_copy_desktop(app: AppHandle, window: tauri::Window, project_id: String, title: String) -> AppResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
     let pid = project_id.clone();
     let meta = run_fs(app.clone(), move |dir| reports::latest(dir, &pid)).await?;
     let meta = meta.ok_or_else(|| AppError::new("no_report", "there is no report to save"))?;
