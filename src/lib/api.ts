@@ -182,7 +182,12 @@ export interface ReportResult {
   pdfMs: number;
   totalMs: number;
 }
-/** The installed version: Android's versionName + versionCode (the CI run number); no build on desktop. */
+/** A report run in progress (`report_running`, D-029). */
+export interface RunningReport {
+  projectId: string;
+  lang: "en" | "pt";
+}
+/** The installed version: Android's versionName + versionCode (the CI run number); on desktop the package version and the CI run number when the build had one (D-029). */
 export interface AppVersion {
   version: string;
   build: string | null;
@@ -254,10 +259,14 @@ export const api = {
     invoke<ReportResult>("generate_report", { projectId, lang, timeZone, utcOffsetMin }),
   /** The project's latest report; null when there is none (or it was made before Sprint 6a). */
   latestReport: (projectId: string) => invoke<ReportInfo | null>("latest_report", { projectId }),
-  /** Android: opens the latest report in a PDF viewer (`no_pdf_app`, `no_report`). */
+  /** The report run in progress, if any: a page reloaded during a run still sees it (D-029). */
+  reportRunning: () => invoke<RunningReport | null>("report_running"),
+  /** Opens the latest report in a PDF viewer (Android) or the default PDF app (desktop) (`no_pdf_app`, `no_report`). */
   openReport: (projectId: string) => invoke<void>("open_report", { projectId }),
   /** Android: shares the latest report through the share sheet (`no_share_app`, `no_report`). */
   shareReport: (projectId: string, title: string) => invoke<void>("share_report", { projectId, title }),
+  /** Desktop: "Save a copy…" — a save dialog, then a copy of the latest report; the saved file's name, or null when cancelled (`save_failed`, `no_report`). */
+  saveReportCopy: (projectId: string, title: string) => invoke<string | null>("save_report_copy", { projectId, title }),
   appVersion: () => invoke<AppVersion>("app_version"),
   /** Debug builds only (the command does not exist in release builds, except local `dev-seed` ones): seeds `count` observations on a plan, with shapes on every photo when `annotate`. */
   devSeedObservations: (planId: string, count: number, annotate: boolean) => invoke<number>("dev_seed_observations", { planId, count, annotate }),

@@ -22,6 +22,7 @@
       case "no_report": return t("error.no_report");
       case "no_pdf_app": return t("error.no_pdf_app");
       case "no_share_app": return t("error.no_share_app");
+      case "save_failed": return t("error.save_failed");
       case "validation": return t("error.validation");
       case "not_found": return t("error.not_found");
       case "db": return t("error.db");

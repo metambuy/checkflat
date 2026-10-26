@@ -15,3 +15,8 @@ thiserror = "2"
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
+
+# Desktop only: the report's Open hands the file to the default PDF app (ShellExecuteExW on
+# Windows, D-029). Not compiled into the APK.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+open = { version = "5", features = ["shellexecute-on-windows"] }

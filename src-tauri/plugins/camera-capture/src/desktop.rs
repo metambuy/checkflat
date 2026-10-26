@@ -32,17 +32,25 @@ impl<R: Runtime> CameraCapture<R> {
         Ok(None)
     }
 
-    /// Android only (Windows saves the report instead, Sprint 6b).
-    pub fn view_pdf(&self, _path: String) -> crate::Result<()> {
-        Err(crate::Error::Unsupported)
+    /// Opens a report copy in the default PDF app (`ShellExecuteExW` on Windows, `open` on macOS,
+    /// D-029). Windows' "no association" becomes [`crate::Error::NoApp`]; Windows usually asks
+    /// "How do you want to open this file?" itself instead.
+    pub fn view_pdf(&self, path: String) -> crate::Result<()> {
+        /// `ERROR_NO_ASSOCIATION`: no app is registered for the file type.
+        const NO_ASSOCIATION: i32 = 1155;
+        open::that_detached(&path).map_err(|e| if e.raw_os_error() == Some(NO_ASSOCIATION) { crate::Error::NoApp } else { e.into() })
     }
 
+    /// Android only; Windows saves a copy instead (`save_report_copy`, D-029).
     pub fn share_pdf(&self, _path: String, _title: String) -> crate::Result<()> {
         Err(crate::Error::Unsupported)
     }
 
-    /// The package version; desktop builds carry no build number.
+    /// The package version, and the build number when the build was given one: CI passes its run
+    /// number as `CHECKFLAT_BUILD` (the Windows installer, D-029), as Android's versionCode is.
+    /// Local builds have none.
     pub fn app_version(&self) -> crate::Result<AppVersion> {
-        Ok(AppVersion { version_name: self.0.package_info().version.to_string(), version_code: None })
+        let version_code = option_env!("CHECKFLAT_BUILD").and_then(|b| b.trim().parse().ok());
+        Ok(AppVersion { version_name: self.0.package_info().version.to_string(), version_code })
     }
 }

@@ -10,6 +10,7 @@
   import { t } from "../i18n.svelte";
   import Icon from "../components/Icon.svelte";
   import { pushBackHandler } from "../nav.svelte";
+  import { isAndroid } from "../platform";
   import { begin, cancelStroke, commit, deleteSelected, end, initial, liveShape, setTool, THIN_CSS, undo, update, type EditorState, type Tool } from "./editor";
   import { fitBox, toImage, type Size } from "./geometry";
   import type { Annotation } from "./model";
@@ -33,6 +34,8 @@
     const live = liveShape(editor);
     return live ? [...editor.shapes, live] : editor.shapes;
   });
+  /** The hint matches the input: a finger on Android, the mouse on desktop (D-029). */
+  let hintKey = $state<"annotate.hint" | "annotate.hint_mouse">("annotate.hint");
   /** Image pixels per CSS pixel at the current fit (tolerances are given in CSS px). */
   const pxPerCss = $derived(box && natural && box.w > 0 ? natural.w / box.w : 1);
 
@@ -41,6 +44,7 @@
   let down = { x: 0, y: 0 };
 
   onMount(() => {
+    void isAndroid().then((a) => (hintKey = a ? "annotate.hint" : "annotate.hint_mouse"));
     // Taking the focus closes the soft keyboard left by the description field and routes Escape here.
     void tick().then(() => root?.focus());
     const ro = new ResizeObserver(() => {
@@ -119,7 +123,7 @@
     <div
       class="picture"
       role="application"
-      aria-label={t("annotate.hint")}
+      aria-label={t(hintKey)}
       class:ready={box !== null && box.w > 0}
       style={box ? `left:${box.x}px;top:${box.y}px;width:${box.w}px;height:${box.h}px` : ""}
       onpointerdown={pointerdown}
@@ -134,7 +138,7 @@
     </div>
   </div>
   <!-- The limit message takes the hint's place (no layout jump) until the next stroke or a removal. -->
-  <p class="hint" class:limit={editor?.limit} aria-live="polite">{editor?.limit ? t("annotate.limit") : t("annotate.hint")}</p>
+  <p class="hint" class:limit={editor?.limit} aria-live="polite">{editor?.limit ? t("annotate.limit") : t(hintKey)}</p>
   <!-- Icons, so the five buttons stay on one row at 360 px in EN and PT; the names come from the strings. -->
   <div class="tools">
     {#each tools as tool (tool)}

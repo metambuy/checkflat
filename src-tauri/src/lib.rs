@@ -93,6 +93,8 @@ macro_rules! handler {
             commands::report::latest_report,
             commands::report::open_report,
             commands::report::share_report,
+            commands::report::save_report_copy,
+            commands::report::report_running,
             $($extra),*
         ]
     };
