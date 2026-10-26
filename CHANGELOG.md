@@ -1,5 +1,24 @@
 # Changelog
 
+## Sprint 6b — 2026-10-26 (v0.1.0: Windows Open and Save a copy, smaller report images, app switch during generation; D-029)
+- **Smaller report images (required for memory and size):**
+  - plan crops are always greyscale with 16 grey levels (colour on a plan prints grey; the pin and the overview's box stay in colour)
+  - photos are 640 px at JPEG q75 (`CROP_GREY_LEVELS`, `REPORT_PHOTO_PX`, `REPORT_JPEG_QUALITY`)
+  - On the P30, project "Perf A1 4a" (56 observations, 166 photos, 85 pages): **20.8 → 9.4 MB, peak memory ≈ 720 → ≈ 534 MB, 24 → 21 s.** A new on-device sampler (`spikes/pss-app-fast.sh`) showed the old 1.5 s sampling missed the top of the 2 s spike, so the old images were ≈ 70 MB over the 650 MB limit.
+  - The two sample PDFs went to Martín for a printed comparison; the client confirms in the preview.
+- **Windows:** the report card has **Open** (the default PDF app) and **"Save a copy…"** ("Guardar uma cópia…"), with "Saved: <name>" after a save.
+  - The save dialog is opened from Rust and proposes the readable name in Documents, so the WebView never passes a path. A file held open by a PDF viewer gives "Could not save the copy… close it and try again".
+  - The annotation editor's hint mentions the mouse on desktop.
+- **Share copies get a folder per report** (`cache/reports/<project>/<stamp>/<name>`) and are reused while they exist. A viewer holding a copy open on Windows no longer blocks Open or a new report, and a repeated Share on Android does not copy the file again.
+- **App switch during generation** (H1–H3: no half-written report; the card never stays on "Generating"; Generate works again):
+  - the startup sweep removes a killed run's part files and unnamed PDFs
+  - a card mounted after its page reloaded during a run follows the backend's run (`report_running`) instead of offering a Generate that answered "already being generated"
+  - **Back on the Projects screen during a run sends the app to the background** (as Home) instead of closing it, which ended the run
+  - Checked on the Android 15 emulator (Home, Back, kill, page reload) and the P30 (another app for 30 s, "No background processes", Back). No foreground service needed.
+- **Version 0.1.0.** The About line shows the build number on Windows too (CI's run number, `CHECKFLAT_BUILD`).
+- **Windows CI** now runs the core tests too, including tests that hold files open the way Acrobat does; its first run found and fixed a Windows-only test defect. The manual Windows test moves to the preview (the friend's laptop); D-029 holds the checklist, results pending.
+- Tests: Rust 141 (was 136), frontend 130 (was 126). APK +20.3 KB (CI run 77). Mac dev check of Open / Save a copy (Martín): "behaved as expected".
+
 ## Sprint 6a — 2026-10-22 (report Open/Share on Android, app version, one narrow FileProvider; D-028)
 - **Report card** on the project screen (replaces Sprint 5's temporary action): language chosen at generation, an indeterminate "Generating report…" with the controls disabled, then the **latest report** — date, language, pages, size — with **Open** and **Share** on Android ("Abrir" / "Partilhar"). The run outlives the screen: leaving and coming back shows it still running. One report at a time (`report_busy`); a project whose report is being generated cannot be deleted meanwhile.
 - **Readable name for recipients:** `"<project name> - <yyyy-mm-dd> - <EN|PT>.pdf"` (the language added after the P30 check, where the EN and PT reports of one day had the same name), sanitised (`/ \ : * ? " < > |` and control characters dropped, cut at 100 bytes, accents kept), fixed at generation; the cover's date and the name's date come from the same instant.

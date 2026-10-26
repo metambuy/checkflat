@@ -334,6 +334,8 @@ Martín sees the numbers before anything is committed.
 
 **Pass:** H1–H3 in every case. A kill costs the run but never data. If H1–H3 cannot hold with this path, **a foreground-service proposal goes to Martín; it is not built unasked.** If P1 shows EMUI killing the app in normal use, D-029 records it, with what it means for HyperOS: the user regenerates in the foreground (≈ 20 s on the P30).
 
+**Added during 6b (Martín, after the P30 check, choice b):** Back on the Projects screen finishes the activity, and the process ends a few seconds later on Android 10 and 15, cancelling a run (P3, E2). While a run is in progress, Back at the root now sends the app to the background, as Home does (the plugin's `moveTaskToBack`). With no run it closes the app as before (D-016). Rechecked on the emulator and on the P30 (CI build 77). P2 also needed a second app: the limit exempts the previous app (D-029).
+
 ## 4. Version 0.1.0 and the build number on both platforms
 - `0.1.0` in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` (+ `Cargo.lock`) and `package.json`.
 - **Build number on Windows:** the windows job's "Build NSIS installer" step gets `env: CHECKFLAT_BUILD: ${{ github.run_number }}`.
