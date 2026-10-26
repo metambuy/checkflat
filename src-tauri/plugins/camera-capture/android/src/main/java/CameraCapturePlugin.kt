@@ -374,6 +374,18 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         })
     }
 
+    /**
+     * Sends the app's task to the background as Home does, instead of finishing the activity (D-029):
+     * Back on the Projects screen while a report is being generated. Finishing the activity ends the
+     * process, and the run with it; in the background the run goes on and the card shows the result
+     * on return.
+     */
+    @Command
+    fun moveTaskToBack(invoke: Invoke) {
+        activity.moveTaskToBack(true)
+        invoke.resolve()
+    }
+
     /** The file `args.path` names, if it is a regular file under `cacheDir/reports/`; rejects otherwise. */
     private fun reportCopy(invoke: Invoke, args: PdfArgs): File? {
         val file = try {

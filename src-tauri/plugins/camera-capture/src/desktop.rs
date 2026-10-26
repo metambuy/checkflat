@@ -46,6 +46,11 @@ impl<R: Runtime> CameraCapture<R> {
         Err(crate::Error::Unsupported)
     }
 
+    /// Android only: a desktop window stays where it is.
+    pub fn move_task_to_back(&self) -> crate::Result<()> {
+        Ok(())
+    }
+
     /// The package version, and the build number when the build was given one: CI passes its run
     /// number as `CHECKFLAT_BUILD` (the Windows installer, D-029), as Android's versionCode is.
     /// Local builds have none.

@@ -7,6 +7,7 @@
   import { onBackButtonPress } from "@tauri-apps/api/app";
   import type { PluginListener } from "@tauri-apps/api/core";
   import { back, go, screen } from "./lib/nav.svelte";
+  import { watchRunning } from "./lib/report/jobs";
   import LanguageSwitch from "./lib/components/LanguageSwitch.svelte";
   import ProjectsScreen from "./lib/screens/ProjectsScreen.svelte";
   import ProjectScreen from "./lib/screens/ProjectScreen.svelte";
@@ -52,12 +53,19 @@
 
   // Android system back: listen only below the root. With a listener registered Tauri never lets
   // Back leave the app, so on the projects list the platform default (close/background) applies.
+  // Except during a report run (D-029): closing the app there ends the process and the run, so
+  // Back at the root sends the app to the background instead, as Home does, and the run goes on.
+  let reportRunning = $state(false);
+  onMount(() => watchRunning((r) => (reportRunning = r)));
   let backListener: Promise<PluginListener> | null = null;
   $effect(() => {
-    const atRoot = s.name === "projects";
-    if (!atRoot && !backListener) {
-      backListener = onBackButtonPress(() => back()).catch(() => null as unknown as PluginListener); // desktop: no-op
-    } else if (atRoot && backListener) {
+    const platformBack = s.name === "projects" && !reportRunning;
+    if (!platformBack && !backListener) {
+      const onBack = () => {
+        if (!back()) void api.appToBackground().catch(() => {});
+      };
+      backListener = onBackButtonPress(onBack).catch(() => null as unknown as PluginListener); // desktop: no-op
+    } else if (platformBack && backListener) {
       const l = backListener;
       backListener = null;
       void l.then((x) => x?.unregister());

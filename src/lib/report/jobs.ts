@@ -8,6 +8,19 @@ interface Running<I> {
   info: I;
 }
 const running = new Map<string, Running<unknown>>();
+const watchers = new Set<(anyRunning: boolean) => void>();
+const notify = () => watchers.forEach((w) => w(running.size > 0));
+
+/**
+ * Called with whether any job is running, now and whenever that changes (D-029: Back on the
+ * Projects screen sends the app to the background during a run, instead of closing it and ending
+ * the run). Returns the unsubscribe function.
+ */
+export function watchRunning(w: (anyRunning: boolean) => void): () => void {
+  watchers.add(w);
+  w(running.size > 0);
+  return () => watchers.delete(w);
+}
 
 /** Starts `run` for the project unless one is running; returns the running job either way. */
 export function startJob<T, I>(projectId: string, info: I, run: () => Promise<T>): Promise<T> {
@@ -15,10 +28,12 @@ export function startJob<T, I>(projectId: string, info: I, run: () => Promise<T>
   if (existing) return existing.job as Promise<T>;
   const job: Promise<T> = run().finally(() => {
     if (running.get(projectId)?.job === job) running.delete(projectId);
+    notify();
   });
   // A screen that was left may never handle the outcome; that is not an unhandled rejection.
   job.catch(() => {});
   running.set(projectId, { job, info });
+  notify();
   return job;
 }
 

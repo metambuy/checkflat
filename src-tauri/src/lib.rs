@@ -44,6 +44,17 @@ async fn app_version(app: tauri::AppHandle) -> error::AppResult<AppVersionInfo> 
     Ok(AppVersionInfo { version: v.version_name, build: v.version_code.map(|c| c.to_string()) })
 }
 
+/// Back on the Projects screen while a report is being generated (Android, D-029): the app goes to
+/// the background as with Home, instead of closing, which would end the process and the run.
+#[tauri::command]
+async fn app_to_background(app: tauri::AppHandle) -> error::AppResult<()> {
+    use tauri_plugin_camera_capture::CameraCaptureExt;
+    tauri::async_runtime::spawn_blocking(move || app.camera_capture().move_task_to_back())
+        .await
+        .map_err(error::AppError::internal)?
+        .map_err(error::AppError::internal)
+}
+
 /// The command list, plus any extra commands that exist only in some builds (the Dev screen's
 /// seed command is compiled out of release builds without the `dev-seed` feature, so it cannot be
 /// named there).
@@ -52,6 +63,7 @@ macro_rules! handler {
         tauri::generate_handler![
             platform_info,
             app_version,
+            app_to_background,
             devlog::dev_log,
             commands::projects::list_projects,
             commands::projects::get_project,

@@ -268,6 +268,8 @@ export const api = {
   /** Desktop: "Save a copy…" — a save dialog, then a copy of the latest report; the saved file's name, or null when cancelled (`save_failed`, `no_report`). */
   saveReportCopy: (projectId: string, title: string) => invoke<string | null>("save_report_copy", { projectId, title }),
   appVersion: () => invoke<AppVersion>("app_version"),
+  /** Android: sends the app to the background as Home does (Back on the Projects screen during a report run, D-029). */
+  appToBackground: () => invoke<void>("app_to_background"),
   /** Debug builds only (the command does not exist in release builds, except local `dev-seed` ones): seeds `count` observations on a plan, with shapes on every photo when `annotate`. */
   devSeedObservations: (planId: string, count: number, annotate: boolean) => invoke<number>("dev_seed_observations", { planId, count, annotate }),
 };

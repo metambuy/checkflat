@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FOLLOW_INTERVAL_MS, followBackend, runningJob, startJob } from "./jobs.ts";
+import { FOLLOW_INTERVAL_MS, followBackend, runningJob, startJob, watchRunning } from "./jobs.ts";
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -77,4 +77,26 @@ test("following stops when the run ends and another project's starts, or when th
   const forever = backend(Array(100).fill({ projectId: "p", lang: "en" }), () => left.abort());
   assert.equal(await followBackend("p", forever, left.signal, () => {}), true);
   assert.equal(forever.looks, 1, "no further look once the screen is gone");
+});
+
+test("watchRunning reports whether any job runs, now and on every change (D-029)", async () => {
+  const seen: boolean[] = [];
+  const stop = watchRunning((r) => seen.push(r));
+  assert.deepEqual(seen, [false], "told at once");
+  const d = deferred<string>();
+  const job = startJob("w", null, () => d.promise);
+  assert.deepEqual(seen, [false, true]);
+  startJob("w", null, () => Promise.resolve("ignored"));
+  assert.deepEqual(seen, [false, true], "joining the running job changes nothing");
+  d.resolve("ok");
+  await job;
+  assert.deepEqual(seen, [false, true, false]);
+  const failed = deferred<string>();
+  const f = startJob("w", null, () => failed.promise);
+  failed.reject(new Error("x"));
+  await assert.rejects(f);
+  assert.deepEqual(seen, [false, true, false, true, false], "a failed run ends too");
+  stop();
+  await startJob("w", null, () => Promise.resolve("after"));
+  assert.equal(seen.length, 5, "no calls after unsubscribing");
 });
