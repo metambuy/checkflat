@@ -193,12 +193,19 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
-      # Typst and the bundled tz database on Windows (the report is also produced on the laptop).
-      - name: Report tests (Typst, time zones)
-        run: cargo test -p checkflat-report
+      # The core (storage, sweep, the report files) and the report (Typst, the bundled tz database) on
+      # Windows. Nobody runs Windows before the preview, so this is the only check of its file rules
+      # until then: a report or share copy held open by a PDF viewer cannot be replaced or removed
+      # there (the `hold` tests in `reports.rs`, D-029).
+      - name: Core and report tests (storage, file locking, Typst, time zones)
+        run: cargo test -p checkflat-core -p checkflat-report
 
+      # The run number is the build number on the About line ("Version 0.1.0 (build N)"), as the
+      # versionCode is on Android (D-021, D-029).
       - name: Build NSIS installer
         run: pnpm tauri build --bundles nsis
+        env:
+          CHECKFLAT_BUILD: ${{ github.run_number }}
 
       - uses: actions/upload-artifact@v4
         with:

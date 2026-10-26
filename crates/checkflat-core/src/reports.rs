@@ -5,12 +5,13 @@
 //! metadata `reports/<project_id>.json` ([`ReportMeta`]), outside `projects/` and `tmp/`. The
 //! startup sweep removes the files of projects that no longer exist ([`sweep_orphans`]).
 //!
-//! Open/Share on Android hand another app a **copy** under the app cache dir,
-//! `<cache>/reports/<project_id>/<readable name>`: Tauri's data dir on Android is the package root,
-//! which a FileProvider cannot serve, and the plugin's provider exposes only the cache's
-//! `reports/` (and the camera's `captures/`) folder (D-028). The copy also carries the name the
-//! recipient sees ([`display_name`]).
-use std::collections::HashSet;
+//! Open/Share hand another app a **copy** under the app cache dir,
+//! `<cache>/reports/<project_id>/<stamp>/<readable name>` ([`share_copy`]): Tauri's data dir on
+//! Android is the package root, which a FileProvider cannot serve, and the plugin's provider exposes
+//! only the cache's `reports/` (and the camera's `captures/`) folder (D-028). The copy also carries
+//! the name the recipient sees ([`display_name`]). Windows saves a copy where the user chooses
+//! ([`save_copy`], D-029).
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -212,17 +213,29 @@ pub fn latest(data_dir: &Path, project_id: &str) -> Result<Option<ReportMeta>> {
     Ok(ok.then_some(meta))
 }
 
-/// Copies the project's latest report to `<share_root>/<project_id>/<readable name>` for another
-/// app to read, and returns the copy's path; `None` when there is no report. The copy goes through
-/// a part file and a rename, so an app still reading an earlier copy of the same name keeps its
-/// file. Copies older than a day are removed first. Each project has its own folder, so two
-/// projects with the same name on the same day never replace each other's copy.
+/// The `<stamp>` of a stored report's file name `<project_id>-<stamp>.pdf` ([`latest`] has checked
+/// the form).
+fn stamp_of<'a>(project_id: &str, file: &'a str) -> &'a str {
+    file.strip_prefix(project_id).and_then(|r| r.strip_prefix('-')).and_then(|r| r.strip_suffix(".pdf")).unwrap_or(file)
+}
+
+/// Copies the project's latest report to `<share_root>/<project_id>/<stamp>/<readable name>` for
+/// another app to read, and returns the copy's path; `None` when there is no report. A folder per
+/// report (D-029): **a copy already made for this report is reused**, never rewritten. On Windows a
+/// PDF viewer such as Acrobat keeps the file it shows locked, so replacing it would fail when Open
+/// is pressed again. A new report gets a new folder, so a copy still held open never blocks it. A
+/// new copy goes through a part file and a rename, so a copy under the final name is always whole.
+/// Copies older than a day are removed first (a held one stays until it is released). Each project
+/// has its own folder, so two projects with the same name on the same day never share a copy.
 pub fn share_copy(data_dir: &Path, project_id: &str, share_root: &Path) -> Result<Option<PathBuf>> {
     let Some(meta) = latest(data_dir, project_id)? else { return Ok(None) };
     purge_share_copies(share_root, SystemTime::now());
-    let dir = share_root.join(project_id);
-    std::fs::create_dir_all(&dir)?;
+    let dir = share_root.join(project_id).join(stamp_of(project_id, &meta.file));
     let dest = dir.join(&meta.name);
+    if std::fs::symlink_metadata(&dest).is_ok_and(|m| m.file_type().is_file() && m.len() == meta.bytes) {
+        return Ok(Some(dest));
+    }
+    std::fs::create_dir_all(&dir)?;
     let part = dir.join(format!("{}.part", meta.name));
     // The copy's age is its own (a clone may carry the source's mtime), so the purge counts from now.
     let copied = std::fs::copy(data_dir.join(REPORTS_DIR).join(&meta.file), &part)
@@ -235,32 +248,62 @@ pub fn share_copy(data_dir: &Path, project_id: &str, share_root: &Path) -> Resul
     Ok(Some(dest))
 }
 
-/// Removes files older than [`SHARE_COPY_MAX_AGE`] in the project folders under `share_root`, and
-/// folders left empty. Never follows symlinks.
+/// Copies the project's latest report to `dest`, a path the user chose in a save dialog (Windows'
+/// "Save a copy…", D-029), and returns it; `None` when there is no report. The copy goes through
+/// `<dest>.part`, fsync and a rename, so `dest` is never half written and an existing file there
+/// is replaced only by a whole copy. On failure the part file is removed, for example when a PDF
+/// viewer holds `dest` open on Windows.
+pub fn save_copy(data_dir: &Path, project_id: &str, dest: &Path) -> Result<Option<PathBuf>> {
+    let Some(meta) = latest(data_dir, project_id)? else { return Ok(None) };
+    let Some(file_name) = dest.file_name() else { return Err(CoreError::Validation("save path without a file name".into())) };
+    let mut part_name = file_name.to_os_string();
+    part_name.push(".part");
+    let part = dest.with_file_name(part_name);
+    let copied = std::fs::copy(data_dir.join(REPORTS_DIR).join(&meta.file), &part)
+        .and_then(|_| std::fs::File::options().write(true).open(&part)?.sync_all())
+        .and_then(|_| std::fs::rename(&part, dest));
+    if let Err(e) = copied {
+        if let Err(rm) = std::fs::remove_file(&part) {
+            if rm.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("could not remove {}: {rm}", part.display());
+            }
+        }
+        return Err(e.into());
+    }
+    Ok(Some(dest.to_path_buf()))
+}
+
+/// Removes files older than [`SHARE_COPY_MAX_AGE`] under `share_root`: in the project folders (the
+/// flat copies of Sprint 6a) and in their per-report folders, then the folders left empty. A file
+/// that cannot be removed (held open on Windows) is logged and stays. Never follows symlinks.
 fn purge_share_copies(share_root: &Path, now: SystemTime) {
     let Ok(dirs) = std::fs::read_dir(share_root) else { return };
     for d in dirs.flatten() {
         let dir = d.path();
-        if !is_real_dir(&dir) {
-            continue;
+        if is_real_dir(&dir) {
+            purge_old_files(&dir, now, 1);
+            let _ = std::fs::remove_dir(&dir); // only succeeds when empty
         }
-        if let Ok(files) = std::fs::read_dir(&dir) {
-            for f in files.flatten() {
-                let p = f.path();
-                let old = std::fs::symlink_metadata(&p)
-                    .ok()
-                    .filter(|m| m.file_type().is_file())
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| now.duration_since(t).ok())
-                    .is_some_and(|age| age > SHARE_COPY_MAX_AGE);
-                if old {
-                    if let Err(e) = std::fs::remove_file(&p) {
-                        log::warn!("could not remove share copy {}: {e}", p.display());
-                    }
+    }
+}
+
+/// [`purge_share_copies`] for one folder, `depth` levels of subfolders down.
+fn purge_old_files(dir: &Path, now: SystemTime, depth: u32) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        let Ok(m) = std::fs::symlink_metadata(&p) else { continue };
+        if m.file_type().is_dir() && depth > 0 {
+            purge_old_files(&p, now, depth - 1);
+            let _ = std::fs::remove_dir(&p);
+        } else if m.file_type().is_file() {
+            let old = m.modified().ok().and_then(|t| now.duration_since(t).ok()).is_some_and(|age| age > SHARE_COPY_MAX_AGE);
+            if old {
+                if let Err(e) = std::fs::remove_file(&p) {
+                    log::warn!("could not remove share copy {}: {e}", p.display());
                 }
             }
         }
-        let _ = std::fs::remove_dir(&dir); // only succeeds when empty
     }
 }
 
@@ -303,19 +346,33 @@ fn owner_of(name: &str) -> Option<&str> {
     (ids::is_id(id) && (report || meta)).then_some(id)
 }
 
-/// Startup sweep step (called by [`crate::paths::sweep_orphans`]): removes the report files of
-/// projects that no longer exist. Reports are derived and can be generated again, and their project
-/// was deleted on purpose, so they are removed rather than quarantined. Regular files only, inside
-/// the data dir (`root` is the canonical data dir).
+/// Startup sweep step (called by [`crate::paths::sweep_orphans`]). It removes:
+/// - the report files of projects that no longer exist;
+/// - for live projects, the leftovers of an interrupted generation (D-029): part files, and PDFs
+///   the project's metadata does not name. A kill between the PDF's rename and the metadata's, or
+///   before the prune, leaves those behind.
+///
+/// No report can be in progress meanwhile: the sweep runs at startup, before any command is served.
+/// Reports are derived and can be generated again, so they are removed rather than quarantined.
+/// Regular files only, inside the data dir (`root` is the canonical data dir).
 pub(crate) fn sweep_orphans(root: &Path, live: &HashSet<String>, report: &mut SweepReport) {
     let Ok(entries) = std::fs::read_dir(root.join(REPORTS_DIR)) else { return };
+    // Live project → the stored PDF its metadata names (if the metadata is usable).
+    let mut named: HashMap<String, Option<String>> = HashMap::new();
     for f in entries.flatten() {
         let name = f.file_name().to_string_lossy().into_owned();
         let Some(owner) = owner_of(&name) else { continue };
         let p = f.path();
         let contained = p.canonicalize().map(|c| c.starts_with(root)).unwrap_or(false);
-        if live.contains(owner) || !is_real_file(&p) || !contained {
+        if !is_real_file(&p) || !contained {
             continue;
+        }
+        if live.contains(owner) {
+            let keep = named.entry(owner.to_string()).or_insert_with(|| latest(root, owner).ok().flatten().map(|m| m.file));
+            let leftover = name.ends_with(PDF_PART) || name.ends_with(META_PART) || (name.ends_with(".pdf") && keep.as_deref() != Some(name.as_str()));
+            if !leftover {
+                continue;
+            }
         }
         let rel = format!("{REPORTS_DIR}/{name}");
         match std::fs::remove_file(&p) {
@@ -507,8 +564,25 @@ mod tests {
         }
     }
 
+    /// Holds `p` open the way a PDF viewer such as Acrobat does on Windows: others may read it but
+    /// not delete, rename or replace it. std's own `File::open` shares delete on Windows, so it
+    /// would hold nothing there. On Unix an open file never blocks a rename or a delete; there the
+    /// same tests check that nothing changes.
+    fn hold(p: &Path) -> std::fs::File {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 0x1;
+            std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(p).unwrap()
+        }
+        #[cfg(not(windows))]
+        std::fs::File::open(p).unwrap()
+    }
+    /// Whether a held file blocks its removal and replacement (Windows only).
+    const HELD_BLOCKS: bool = cfg!(windows);
+
     #[test]
-    fn share_copy_names_the_copy_per_project_and_purges_old_copies() {
+    fn share_copy_has_a_folder_per_report_and_purges_old_copies() {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
         let share = dir.path().join("cache/reports");
@@ -519,33 +593,140 @@ mod tests {
         write_report(&data, &q, "20261022T100000000Z", b"%PDF-q", new_report("Obra - 2026-10-22.pdf")).unwrap();
         let cp = share_copy(&data, &p, &share).unwrap().unwrap();
         let cq = share_copy(&data, &q, &share).unwrap().unwrap();
-        assert_eq!(cp, share.join(&p).join("Obra - 2026-10-22.pdf"));
-        assert_eq!(cq, share.join(&q).join("Obra - 2026-10-22.pdf"), "same name, own folder");
+        assert_eq!(cp, share.join(&p).join("20261022T100000000Z").join("Obra - 2026-10-22.pdf"));
+        assert_eq!(cq, share.join(&q).join("20261022T100000000Z").join("Obra - 2026-10-22.pdf"), "same name, own folder");
         assert_eq!(std::fs::read(&cp).unwrap(), b"%PDF-p");
         assert_eq!(std::fs::read(&cq).unwrap(), b"%PDF-q");
 
-        // A new report of the same name replaces the copy in place.
-        write_report(&data, &p, "20261022T110000000Z", b"%PDF-p2", new_report("Obra - 2026-10-22.pdf")).unwrap();
+        // The same report again: the copy is reused, not rewritten.
+        set_age(&cp, 2);
+        let before = std::fs::metadata(&cp).unwrap().modified().unwrap();
         assert_eq!(share_copy(&data, &p, &share).unwrap().unwrap(), cp);
-        assert_eq!(std::fs::read(&cp).unwrap(), b"%PDF-p2");
-        assert_eq!(names(&share.join(&p)), ["Obra - 2026-10-22.pdf"]);
+        assert_eq!(std::fs::metadata(&cp).unwrap().modified().unwrap(), before);
+        assert_eq!(names(cp.parent().unwrap()), ["Obra - 2026-10-22.pdf"], "no part file left");
 
-        // Copies older than a day go before the next copy; younger ones and other projects' stay.
-        let stale = share.join(&p).join("Obra - 2026-10-20.pdf");
-        std::fs::write(&stale, b"%PDF-old").unwrap();
-        set_age(&stale, 25);
-        let young = share.join(&p).join("Obra - 2026-10-21.pdf");
-        std::fs::write(&young, b"%PDF-young").unwrap();
-        set_age(&young, 23);
+        // A new report of the same name gets its own folder; the earlier copy stays until it is old.
+        write_report(&data, &p, "20261022T110000000Z", b"%PDF-p2", new_report("Obra - 2026-10-22.pdf")).unwrap();
+        let cp2 = share_copy(&data, &p, &share).unwrap().unwrap();
+        assert_eq!(cp2, share.join(&p).join("20261022T110000000Z").join("Obra - 2026-10-22.pdf"));
+        assert_eq!(std::fs::read(&cp2).unwrap(), b"%PDF-p2");
+        assert_eq!(std::fs::read(&cp).unwrap(), b"%PDF-p");
+
+        // Copies older than a day go before the next copy, then their folders; younger ones stay, as
+        // do flat copies from Sprint 6a until they are old.
+        set_age(&cp, 25);
+        let stale_6a = share.join(&p).join("Obra - 2026-10-20.pdf");
+        std::fs::write(&stale_6a, b"%PDF-old").unwrap();
+        set_age(&stale_6a, 25);
+        let young_6a = share.join(&p).join("Obra - 2026-10-21.pdf");
+        std::fs::write(&young_6a, b"%PDF-young").unwrap();
+        set_age(&young_6a, 23);
         set_age(&cq, 25);
         share_copy(&data, &p, &share).unwrap().unwrap();
-        assert!(!stale.exists());
-        assert!(young.exists());
-        assert!(!share.join(&q).exists(), "q's only copy was old: its folder is gone too");
+        assert!(!cp.exists() && !cp.parent().unwrap().exists(), "the old report's copy and its folder");
+        assert!(!stale_6a.exists());
+        assert!(young_6a.exists());
+        assert!(cp2.exists());
+        assert!(!share.join(&q).exists(), "q's only copy was old: its folders are gone too");
 
         remove_share_copies(&share, &p).unwrap();
         assert!(!share.join(&p).exists());
         remove_share_copies(&share, &p).unwrap();
+    }
+
+    /// Windows: a PDF viewer keeps the copy it shows locked (D-029). Open again must not fail, a new
+    /// report must not be blocked, and the purge must not fail over a held copy.
+    #[test]
+    fn share_copy_with_an_earlier_copy_held_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let share = dir.path().join("cache/reports");
+        let p = ids::new_id();
+        write_report(&data, &p, "20261022T100000000Z", b"%PDF-1", new_report("Obra - 2026-10-22 - PT.pdf")).unwrap();
+        let first = share_copy(&data, &p, &share).unwrap().unwrap();
+
+        // Open again while the viewer holds the copy: the same file, untouched.
+        let held = hold(&first);
+        assert_eq!(share_copy(&data, &p, &share).unwrap().unwrap(), first);
+        assert_eq!(std::fs::read(&first).unwrap(), b"%PDF-1");
+        // A new report while the old copy is held: its own folder.
+        write_report(&data, &p, "20261022T110000000Z", b"%PDF-22", new_report("Obra - 2026-10-22 - PT.pdf")).unwrap();
+        let second = share_copy(&data, &p, &share).unwrap().unwrap();
+        assert_ne!(second, first);
+        assert_eq!(std::fs::read(&second).unwrap(), b"%PDF-22");
+        drop(held);
+
+        // A held copy past a day: the purge logs and goes on; the copy goes once it is released.
+        set_age(&first, 25);
+        let held = hold(&first);
+        assert_eq!(share_copy(&data, &p, &share).unwrap().unwrap(), second);
+        assert_eq!(first.exists(), HELD_BLOCKS);
+        drop(held);
+        share_copy(&data, &p, &share).unwrap().unwrap();
+        assert!(!first.exists());
+        assert!(second.exists());
+    }
+
+    /// Windows: regenerating while the viewer still shows the stored report or a share copy.
+    #[test]
+    fn regenerate_while_the_stored_report_or_a_copy_is_held_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let share = dir.path().join("cache/reports");
+        let p = ids::new_id();
+        let (pdf1, _) = write_report(&data, &p, "20261022T100000000Z", b"%PDF-1", new_report("Obra - 2026-10-22 - PT.pdf")).unwrap();
+        let copy1 = share_copy(&data, &p, &share).unwrap().unwrap();
+        let (held_pdf, held_copy) = (hold(&pdf1), hold(&copy1));
+
+        let (pdf2, meta2) = write_report(&data, &p, "20261022T110000000Z", b"%PDF-22", new_report("Obra - 2026-10-22 - EN.pdf")).unwrap();
+        assert_eq!(latest(&data, &p).unwrap(), Some(meta2), "the new report is the latest");
+        assert_eq!(std::fs::read(&pdf2).unwrap(), b"%PDF-22");
+        assert_eq!(pdf1.exists(), HELD_BLOCKS, "a held old PDF survives the prune (logged)");
+        assert!(copy1.exists(), "a held share copy is not touched by generation");
+        drop((held_pdf, held_copy));
+
+        // Released: the next generation prunes it.
+        let (_, meta3) = write_report(&data, &p, "20261022T120000000Z", b"%PDF-333", new_report("Obra - 2026-10-22 - EN.pdf")).unwrap();
+        assert!(!pdf1.exists() && !pdf2.exists());
+        assert_eq!(latest(&data, &p).unwrap(), Some(meta3));
+        assert_eq!(names(&data.join("reports")), [format!("{p}-20261022T120000000Z.pdf"), format!("{p}.json")]);
+    }
+
+    #[test]
+    fn save_copy_writes_a_whole_copy_and_replaces_an_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let out = dir.path().join("Desktop");
+        std::fs::create_dir_all(&out).unwrap();
+        let dest = out.join("Obra - 2026-10-22 - PT.pdf");
+        let p = ids::new_id();
+        assert_eq!(save_copy(&data, &p, &dest).unwrap(), None, "no report yet");
+        assert!(!dest.exists());
+
+        write_report(&data, &p, "20261022T100000000Z", b"%PDF-1", new_report("Obra - 2026-10-22 - PT.pdf")).unwrap();
+        assert_eq!(save_copy(&data, &p, &dest).unwrap(), Some(dest.clone()));
+        assert_eq!(std::fs::read(&dest).unwrap(), b"%PDF-1");
+        assert_eq!(names(&out), ["Obra - 2026-10-22 - PT.pdf"], "no part file left");
+
+        // Over an existing file (the dialog asked before replacing it): replaced whole.
+        write_report(&data, &p, "20261022T110000000Z", b"%PDF-22", new_report("Obra - 2026-10-22 - PT.pdf")).unwrap();
+        save_copy(&data, &p, &dest).unwrap().unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"%PDF-22");
+        assert_eq!(names(&out), ["Obra - 2026-10-22 - PT.pdf"]);
+
+        // A destination held open by a viewer: an error on Windows with the file as it was; no part
+        // file left either way.
+        write_report(&data, &p, "20261022T120000000Z", b"%PDF-333", new_report("Obra - 2026-10-22 - PT.pdf")).unwrap();
+        let held = hold(&dest);
+        let saved = save_copy(&data, &p, &dest);
+        assert_eq!(saved.is_err(), HELD_BLOCKS, "{saved:?}");
+        drop(held);
+        assert_eq!(std::fs::read(&dest).unwrap(), if HELD_BLOCKS { &b"%PDF-22"[..] } else { &b"%PDF-333"[..] });
+        assert_eq!(names(&out), ["Obra - 2026-10-22 - PT.pdf"]);
+
+        // A folder that does not exist: an error, nothing written.
+        assert!(matches!(save_copy(&data, &p, &dir.path().join("gone/x.pdf")), Err(CoreError::Io(_))));
+        assert!(!dir.path().join("gone").exists());
     }
 
     #[test]
