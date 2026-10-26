@@ -91,10 +91,10 @@ fn report_has_a_cover_and_the_observations_in_a_continuous_list_newest_first() {
     assert_eq!(input.stats.skipped_photos, 0);
     assert_eq!(input.stats.without_snapshot, 1);
     assert_eq!(input.files.iter().filter(|(n, _)| n.starts_with("img/overview")).count(), 1);
-    // Report photos are ≤ 800 px; a small one is embedded as stored.
+    // Report photos are ≤ 640 px (REPORT_PHOTO_PX); a small one is embedded as stored.
     let big = input.files.iter().find(|(n, _)| n == "img/photo-1-0.jpg").unwrap();
     let img = image::load_from_memory(&big.1).unwrap();
-    assert_eq!((img.width(), img.height()), (800, 600));
+    assert_eq!((img.width(), img.height()), (640, 480));
 
     let r = render(&input).unwrap();
     assert!(r.pdf.starts_with(b"%PDF"));
@@ -128,14 +128,14 @@ fn annotated_photos_reach_the_report_drawn() {
     let file = |name: &str| input.files.iter().find(|(f, _)| f == name).map(|(_, b)| b.clone()).unwrap_or_else(|| panic!("{name} missing"));
 
     let img = image::load_from_memory(&file("img/photo-0-0.jpg")).unwrap().to_rgb8();
-    assert_eq!(img.dimensions(), (800, 600));
-    let ring = img.get_pixel(200, 300);
+    assert_eq!(img.dimensions(), (640, 480));
+    let ring = img.get_pixel(160, 240);
     assert!(ring[0] > 180 && ring[1] < 60 && ring[2] < 60, "red on the ring: {ring:?}");
-    let centre = img.get_pixel(400, 300);
+    let centre = img.get_pixel(320, 240);
     assert!(centre[1] > 90, "the fixture's own colour inside the ring: {centre:?}");
 
     let stored = photos::list_for_observation(&conn, &obs).unwrap()[1].file_path.resolve(data);
-    assert_eq!(file("img/photo-0-1.jpg"), std::fs::read(stored).unwrap(), "no shapes, ≤ 800 px: embedded as stored");
+    assert_eq!(file("img/photo-0-1.jpg"), std::fs::read(stored).unwrap(), "no shapes, ≤ 640 px: embedded as stored");
     assert_eq!(input.stats.photos, 2);
     assert_eq!(input.stats.skipped_photos, 0);
 }
