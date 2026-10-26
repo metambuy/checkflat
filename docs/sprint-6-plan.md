@@ -403,6 +403,9 @@ Plain text for his guide (no Tab sequences, no AppData folders, no Acrobat-lock 
   - §4 Sprint 6b ✅ and v0.1
   - the pre-v0.1 Windows test line: now run by the friend during the preview, with CI covering file locking
 
+## 7. Added during 6b: photos two per row (Martín, 2026-10-26)
+After choosing the smaller images (print choice B), Martín decided the report's photos go **two per row** instead of one below the other, for a more compact report; this replaces the single column of the 2026-10-13 answers (D-025). A 2-column grid on the plan row's columns; each photo keeps its maximum of 80 mm wide and 70 mm tall with its caption under it; three photos are a row of two and a row of one; a row is never split across pages. Done in `assets/report.typ`; `tests/photo_layout.rs` pins it from the PDF's content stream. Images are unchanged, so there is no P30 re-measure; the Mac harness gives the page counts, time and size (D-029).
+
 ## Steps (commit per step)
 1. `git checkout -b sprint-6b fc362f1`, then this plan commit. **Build A** (dev-seed) and keep it in the scratchpad.
 2. **Images:** constants, crops, tests; `spikes/pss-app-fast.sh`. A Mac release-harness run of `measure_50_observations` on the fixture, before and after, as a sanity check. **Push and open a draft PR** (CI runs on PRs only).
@@ -426,7 +429,7 @@ Plain text for his guide (no Tab sequences, no AppData folders, no Acrobat-lock 
 9. *After the merge, not blocking:* the friend's Windows run during the preview → his results go into D-029 in a docs-only commit.
 
 ## Files touched
-- **Report crate:** `crates/checkflat-report/src/{snapshot.rs, annotate.rs}`, `tests/{snapshot.rs, report.rs}`
+- **Report crate:** `crates/checkflat-report/src/{snapshot.rs, annotate.rs}`, `assets/report.typ` (photos two per row), `tests/{snapshot.rs, report.rs, photo_layout.rs (new)}`
 - **Core:** `crates/checkflat-core/src/reports.rs` (share layout, purge, `save_copy`, live-leftover sweep), `tests/{sweep.rs, …}`
 - **Tauri:** `src-tauri/src/commands/report.rs` (slot `{pid, lang}`, `report_running`, `save_report_copy`), `src-tauri/src/lib.rs` (handlers), `src-tauri/Cargo.toml`, `tauri.conf.json`
 - **Plugin:** `src-tauri/plugins/camera-capture/{Cargo.toml (desktop `open`), src/desktop.rs (`view_pdf`, `app_version` build), src/error.rs, README.md}`

@@ -6,6 +6,7 @@
   - photos are 640 px at JPEG q75 (`CROP_GREY_LEVELS`, `REPORT_PHOTO_PX`, `REPORT_JPEG_QUALITY`)
   - On the P30, project "Perf A1 4a" (56 observations, 166 photos, 85 pages): **20.8 → 9.4 MB, peak memory ≈ 720 → ≈ 534 MB, 24 → 21 s.** A new on-device sampler (`spikes/pss-app-fast.sh`) showed the old 1.5 s sampling missed the top of the 2 s spike, so the old images were ≈ 70 MB over the 650 MB limit.
   - Martín printed both sample PDFs and chose the smaller images ("no visible difference in print"); the client confirms in the preview.
+- **Photos two per row** (Martín's decision, replacing the single column of the client's 2026-10-13 answers, for a more compact report): a 2-column grid on the plan row's columns, each photo still ≤ 80 × 70 mm with its caption under it, three photos a row of two and a row of one, a row never split across pages, the "Images" label with the first row. Mac harness, images unchanged: the emulator's 51-observation project **69 → 52 pages**, with a portrait photo first in each observation 77 → 69, the synthetic 50 × 3 fixture 85 → 68; size +12–21 KB, time and memory the same. `tests/photo_layout.rs` reads the PDF's content stream to pin the columns, the captions and the unsplit rows.
 - **Windows:** the report card has **Open** (the default PDF app) and **"Save a copy…"** ("Guardar uma cópia…"), with "Saved: <name>" after a save.
   - The save dialog is opened from Rust and proposes the readable name in Documents, so the WebView never passes a path. A file held open by a PDF viewer gives "Could not save the copy… close it and try again".
   - The annotation editor's hint mentions the mouse on desktop.
@@ -17,7 +18,7 @@
   - Checked on the Android 15 emulator (Home, Back, kill, page reload) and the P30 (another app for 30 s, "No background processes", Back). No foreground service needed.
 - **Version 0.1.0.** The About line shows the build number on Windows too (CI's run number, `CHECKFLAT_BUILD`).
 - **Windows CI** now runs the core tests too, including tests that hold files open the way Acrobat does; its first run found and fixed a Windows-only test defect. The manual Windows test moves to the preview (the friend's laptop); D-029 holds the checklist, results pending.
-- Tests: Rust 141 (was 136), frontend 130 (was 126). APK +20.3 KB (CI run 77). Mac dev check of Open / Save a copy (Martín): "behaved as expected".
+- Tests: Rust 144 (was 136), frontend 130 (was 126). APK +20.3 KB (CI run 77). Mac dev check of Open / Save a copy (Martín): "behaved as expected".
 
 ## Sprint 6a — 2026-10-22 (report Open/Share on Android, app version, one narrow FileProvider; D-028)
 - **Report card** on the project screen (replaces Sprint 5's temporary action): language chosen at generation, an indeterminate "Generating report…" with the controls disabled, then the **latest report** — date, language, pages, size — with **Open** and **Share** on Android ("Abrir" / "Partilhar"). The run outlives the screen: leaving and coming back shows it still running. One report at a time (`report_busy`); a project whose report is being generated cannot be deleted meanwhile.

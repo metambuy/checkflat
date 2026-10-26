@@ -447,7 +447,7 @@ Photos: 800 px / q70 ≈ 0.85× and 640 px / q75 ≈ 0.71× of the current 800 p
 ## D-025 — Report layout from the client's answers, 3-photo limit (2026-10-13)
 **Context.** Sprint 5 (D-024) left the layout questions open with the client: one page per observation, the photo grid, the pin label, the plan title in the header. The client answered on 2026-10-13 (plan §0): (1) no page per observation — a continuous list, several per page, with a clear separation; the header + ID + plan row (crop and overview) stay together, the description and each photo with its caption are never split, photos may flow to the next page; (2) photos one below the other, not a two-column grid; (3) at most 3 photos per observation, enforced in the app; (4) the pin in the crop shows the marker and the number — the same label as the app pin; (5) the plan title next to the project name; (6) captions `n. dd.mm.yyyy hh:mm`, newest first by creation date, the cover and the ≈ 20 % crop stay as they are. **Still open with the client:** whether the crop needs more context than ≈ 20 % of the sheet (the reply was only "sim"), and the Aproplan sample pages, which were not sent. The photo sizes (landscape 80 mm wide, portrait ≤ 70 mm tall) are our Sprint 5 default and were kept — the client asked to keep them unless the layout showed a reason, and it did not (see below); they are not a client answer. No schema change; Sprint 5b, PR #5.
 
-**Layout** (`assets/report.typ`). One `pagebreak()` after the cover, then the observations in flow, `v(8mm)` between them (no filled band: the header keeps the mockup's style, project name 14 pt over a thin grey rule, now with the plan title right-aligned on the same line in 11 pt grey). What is kept together:
+**Layout** (`assets/report.typ`). *The photos' single column below was replaced by two per row on 2026-10-26, by Martín's decision: D-029.* One `pagebreak()` after the cover, then the observations in flow, `v(8mm)` between them (no filled band: the header keeps the mockup's style, project name 14 pt over a thin grey rule, now with the plan title right-aligned on the same line in 11 pt grey). What is kept together:
 
 | Piece | Breakable | How |
 |---|---|---|
@@ -732,6 +732,26 @@ The approved plan is Part 6b of `docs/sprint-6-plan.md`. Martín's decisions in 
 
   A 200 dpi render of page 22 shows the two crops practically the same. **Martín's print choice (2026-10-26): B, the smaller images — "no visible difference in print".** So the constants stay as built (16 grey levels, 640 px, q75); the client confirms in the preview.
 
+**Photo layout: two per row (Martín's decision, 2026-10-26, after the print choice).** This **replaces the single column of the 2026-10-13 answers** (D-025, point 2: "photos one below the other") **by Martín's decision, for a more compact report.**
+- **The layout** (`assets/report.typ`): the photos go two per row, on the two columns of the plan row above them (80 mm + 6 mm gutter, the same 170 mm text width). Each photo keeps its maximum size, ≤ 80 mm wide and ≤ 70 mm tall with its 2 pt frame (a portrait photo is narrower), with its caption under it. Three photos are a row of two and a row of one. The cells are top-aligned, so a portrait photo beside a landscape one does not stretch or shift it.
+- **What stays together (D-025):** the head with the ID and the plan row; the description (unless taller than 150 mm); the "Images" label with the first photo. **New:** a row is one unbreakable block, so it is never split across pages; a row that does not fit moves whole to the next page, and a lone third photo may start the next page. Image sizes and encodings are unchanged, so the decoded-image floor is too: no P30 re-measure.
+- **Tests** (`tests/photo_layout.rs`) read the layout from the PDF itself: the content stream gives every image's box (`cm` + `Do`) and the origin of every line of text (`cm` + `Tm`); the photos are the JPEG images.
+  - Three photos (landscape, portrait, landscape): the first two on the two columns with the same top, the third under the first, every photo within 80 × 70 mm, the landscape ones the full 80 mm, a caption under each photo on its left edge and close below it. One photo is a row of one; two are one row.
+  - Nine observations of three wide, short photos with descriptions of different lengths, so that breaks fall between the description and the first row (that row moves with its label), between the two rows (the lone third photo starts the next page) and before a head. On every page a row's photos are on one page, one row, with the third under them or at the top of the next page; no photo or caption reaches the bottom margin; the "Images" labels on a page are those of the observations whose first row is on it. The fixture asserts that both kinds of break occur.
+  - Mutation-checked: the old single-column template fails all three; a label that is not sticky fails the label check.
+  - The three existing page-count tests keep their numbers (3, 2, 3); their comments now describe the rows.
+- **Mac release harness, same data, old vs new template** (images unchanged):
+
+  | Data | Pages | PDF bytes | Total (compile) | Max RSS |
+  |---|---|---|---|---|
+  | The emulator's project "Test" (the client's A1 plan, 51 observations, 151 landscape photos) | 69 → **52** | 4,646,784 → 4,659,065 | 4.22–4.29 s → 4.13–4.17 s (compile 229–234 → 227–231 ms) | 262 → 256–265 MB |
+  | The same, the first photo of each observation made portrait (like the P30 set) | 77 → **69** | 4,646,549 → 4,667,223 | 4.29 s → 4.24–4.33 s (237 → 238–243 ms) | 263 → 256–267 MB |
+  | The synthetic 50 × 3 fixture (landscape, portrait, landscape; A1 + A4 plans) | 85 → **68** | 7,080,954 → 7,094,245 | 5.35 s → 5.27 s (323 → 320 ms) | 295 → 296 MB |
+
+  Size +12 to +21 KB (an extra grid per row), time and memory equal.
+- **The saving depends on the photos' orientation.** With landscape photos an observation takes one page; with a portrait photo in the first row (76 mm with its caption) the head, the description and two rows no longer fit one page, and the third photo moves to the next page (69 pages for 51 observations in the mixed sample).
+- **Sample on Martín's Desktop:** "Checkflat 6b sample - photos two per row (69 pages).pdf" is the mixed case above, made on a scratch copy of the emulator's data (the app's data was not changed): the client's A1 plan, the emulator's synthetic photos, the first photo of each observation rotated to portrait. The P30's own data cannot be read from the phone, so the sample is not the P30 set.
+
 **App-switch checks.**
 
 *Emulator* (Android 15 `Phone_API35`, debug builds, project "Test" 51 × 3; the files read with `run-as`):
@@ -797,7 +817,7 @@ The approved plan is Part 6b of `docs/sprint-6-plan.md`. Martín's decisions in 
 A short PT guide for the tester (install and SmartScreen, his own plan, a photo from a file, annotation with the mouse, Esc closes only the editor, close and reopen, Gerar/Abrir/Guardar uma cópia, Abrir again with the PDF open, phone and laptop data separate for now) went to Martín as plain text for the tester's guide.
 
 **Open after 6b.**
-- The client's confirmation of the smaller images in the preview (Martín printed both samples and chose B). A different outcome is a constants change plus a re-measure with the same script.
+- The client's view of the two-column photo layout (their 2026-10-13 answer asked for a single column; Martín decided on two per row, D-029) and their confirmation of the smaller images in the preview (Martín printed both samples and chose B). A different outcome is a constants change plus a re-measure with the same script.
 - The Windows results (pending preview).
 - HyperOS itself is untested; P2 stands in for it. The client's phone remains unmeasured.
 - A dead WebView renderer takes the app down: nothing in wry 0.55 or Tauri handles `onRenderProcessGone`. For the report that is the same as a kill (H1–H3).
