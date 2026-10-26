@@ -2,8 +2,10 @@
 // Cover, then the open observations as a continuous list, newest first, several per page. Per
 // observation: the header (project name, plan title), the ID and the plan row (crop with the
 // labelled pin beside the overview with the crop outlined in red) stay together on one page; the
-// description is never split; the photos follow one below the other, each with its caption kept
-// together, and may flow to the next page. Page x/y in the footer.
+// description is never split; the photos follow two per row (Martín's decision of 2026-10-26,
+// D-029, replacing the single column of D-025: three photos are a row of two and a row of one),
+// each with its caption under it, a row never split across pages; rows may flow to the next page.
+// Page x/y in the footer.
 // Content arrives as JSON in sys.inputs.data (see data.rs); images are virtual files under img/.
 #import sys: inputs
 #let data = json(bytes(inputs.data))
@@ -13,6 +15,7 @@
 #let frame = rgb("#1a73c7")
 #let W = 80mm // width of each snapshot and of a landscape photo
 #let PHOTO_H = 70mm // tallest photo (portrait photos are narrower than W)
+#let GUTTER = 6mm // between the two columns, of the plan row and of the photo rows
 // A kept-together block taller than this may break after all: unbreakable, it would overflow the
 // page (the body is 261 mm) and be clipped.
 #let KEEP_MAX = 150mm
@@ -89,13 +92,26 @@
   #align(center + horizon)[#text(size: 9pt, fill: luma(110))[#L.no_snapshot]]
 ]
 
-// Frame + caption, never split.
+// Frame + caption, never split; at most W wide and PHOTO_H tall (one cell of a photo row).
 #let photo(p) = block(breakable: false)[
   #let w = calc.min(W, PHOTO_H / p.aspect)
   #box(stroke: 1pt + frame, inset: 2pt, image(p.file, width: w - 4pt))
   #v(1mm)
   #text(size: 9pt, style: "italic", fill: luma(80))[#p.caption]
 ]
+
+// The photos two per row, on the columns of the plan row above (D-029). A row is one unbreakable
+// block: its two photos stay side by side on one page, and a row that does not fit moves whole.
+// Cells are top-aligned, so a portrait photo beside a landscape one does not stretch it.
+#let photo_rows(photos) = for (r, row) in photos.chunks(2).enumerate() {
+  if r > 0 { v(4mm) }
+  block(width: 100%, breakable: false, grid(
+    columns: (W, W),
+    column-gutter: GUTTER,
+    align: top + left,
+    ..row.map(photo),
+  ))
+}
 
 // ---- the observations, newest first, as a continuous list ----
 // Spacing inside the list is explicit (`v`), with the implicit paragraph/block spacing off: the
@@ -127,7 +143,7 @@
       #v(1.5mm)
       #grid(
         columns: (W, W),
-        column-gutter: 6mm,
+        column-gutter: GUTTER,
         if o.crop != none { crop(o.crop, o.marker) } else { missing },
         if o.overview != none { overview(o.overview) } else { missing },
       )
@@ -140,8 +156,8 @@
       #v(1mm)
       #text(hyphenate: true)[#o.description]
     ]
-    // The label stays with the first photo; without photos (all files missing, or migrated from
-    // Sprint 3a) there is none, or it would stick to the next observation.
+    // The label stays with the first row of photos; without photos (all files missing, or migrated
+    // from Sprint 3a) there is none, or it would stick to the next observation.
     #if o.photos.len() > 0 [
       #v(3mm)
       #block(sticky: true)[
@@ -150,10 +166,7 @@
         #label(L.images)
       ]
       #v(2mm)
-      #for (j, p) in o.photos.enumerate() {
-        if j > 0 { v(4mm) }
-        photo(p)
-      }
+      #photo_rows(o.photos)
     ]
   ]
 ]
