@@ -24,6 +24,7 @@
   import Icon from "../components/Icon.svelte";
   import { devlog } from "../devlog";
   import { createDraftSaver, DRAFT_KEY, restoreTarget, type SheetDraft, type SheetState } from "../sheet/draft";
+  import { sheetIsDirty } from "../sheet/discard";
   import { saveThenRefresh } from "../sheet/flow";
 
   import type { SheetPhotos } from "../sheet/photos";
@@ -48,6 +49,10 @@
   let sheet = $state<SheetMode>(null);
   let editSaving = $state(false);
   let sheetError = $state<AppError | null>(null);
+  // "Discard?" is asked before a sheet that holds input is closed (Cancel, Back, Escape); the latest
+  // input of the open sheet comes in through `sheetState`.
+  let confirmDiscard = $state(false);
+  let sheetInput: SheetState | null = null;
   let viewer = $state<PlanViewer | null>(null);
   // Read once: the pin a tap in the observation list asked for, selected and centred when the
   // viewer is up and has a size (the effect below). Not state: only that effect uses it.
@@ -94,10 +99,11 @@
 
   onMount(() => {
     setBackHandler(() => {
-      switch (backStep({ dialog: toDelete !== null, sheet: sheet !== null, adding: ds.adding, draft: ds.draft !== null, saving: ds.saving || editSaving, selected: selectedId !== null && selectedId !== jumpedId })) {
+      switch (backStep({ dialog: toDelete !== null, discard: confirmDiscard, sheet: sheet !== null, adding: ds.adding, draft: ds.draft !== null, saving: ds.saving || editSaving, selected: selectedId !== null && selectedId !== jumpedId })) {
         case "dialog": toDelete = null; return true;
+        case "discard": confirmDiscard = false; return true; // keep editing
         case "busy": return true; // a save is in flight: Back does nothing
-        case "sheet": closeSheet(); return true;
+        case "sheet": requestCloseSheet(); return true;
         case "draft": setDraft(cancel(ds)); return true;
         case "selection": selectedId = null; return true;
         default: return false;
@@ -164,11 +170,23 @@
     sheet = null;
     sheetError = null;
     restoredDraft = null;
+    confirmDiscard = false;
+    sheetInput = null;
     void saver.clear();
+  }
+
+  /** Cancel, Back and Escape on the sheet: a sheet that holds photos, shapes or text asks first
+   * (a camera photo exists only in the app's cache until Save); an untouched one just closes. */
+  function requestCloseSheet() {
+    if (ds.saving || editSaving) return;
+    const stored = sheet === "edit" ? (selected?.description ?? "") : "";
+    if (sheetInput && sheetIsDirty(sheetInput, stored)) confirmDiscard = true;
+    else closeSheet();
   }
 
   /** Input of the open sheet → the stored draft. */
   function sheetState(s: SheetState, immediate: boolean): Promise<void> | void {
+    sheetInput = s;
     let d: SheetDraft | null = null;
     const base = { v: 1 as const, projectId, planId, ...s, savedAt: Date.now() };
     if (sheet === "create" && ds.draft) d = { ...base, mode: "create", observationId: null, x: ds.draft.x, y: ds.draft.y };
@@ -366,10 +384,19 @@
   </div>
 
   {#if createShown}
-    <ObservationSheet {projectId} initial={restoredDraft?.mode === "create" ? restoredDraft : null} onstate={sheetState} saving={ds.saving} error={sheetError} onsave={saveObservation} oncancel={closeSheet} ondismiss={() => (sheetError = null)} />
+    <ObservationSheet {projectId} initial={restoredDraft?.mode === "create" ? restoredDraft : null} onstate={sheetState} saving={ds.saving} error={sheetError} locked={confirmDiscard} onsave={saveObservation} oncancel={requestCloseSheet} ondismiss={() => (sheetError = null)} />
   {:else if sheet === "edit" && selected}
-    <ObservationSheet {projectId} observation={selected} initial={restoredDraft?.mode === "edit" ? restoredDraft : null} onstate={sheetState} saving={editSaving} error={sheetError} onsave={saveEdit} oncancel={closeSheet} ondismiss={() => (sheetError = null)} />
+    <ObservationSheet {projectId} observation={selected} initial={restoredDraft?.mode === "edit" ? restoredDraft : null} onstate={sheetState} saving={editSaving} error={sheetError} locked={confirmDiscard} onsave={saveEdit} oncancel={requestCloseSheet} ondismiss={() => (sheetError = null)} />
   {/if}
+  <ConfirmDialog
+    open={confirmDiscard}
+    message={t("sheet.discard_confirm")}
+    confirmLabel={t("sheet.discard")}
+    cancelLabel={t("sheet.keep_editing")}
+    danger
+    onconfirm={closeSheet}
+    oncancel={() => (confirmDiscard = false)}
+  />
   <ConfirmDialog
     open={toDelete !== null}
     message={toDelete ? t("pin.delete_confirm", { ref: toDelete.ref }) : ""}
