@@ -488,6 +488,7 @@ dependencies = [
  "glob",
  "image",
  "log",
+ "rfd",
  "serde",
  "serde_json",
  "tauri",
@@ -495,6 +496,7 @@ dependencies = [
  "tauri-plugin-camera-capture",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
+ "tempfile",
 ]
 
 [[package]]

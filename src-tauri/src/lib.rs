@@ -5,6 +5,7 @@ mod commands;
 mod asset_scope;
 mod devlog;
 mod error;
+mod startup;
 mod state;
 
 use serde::Serialize;
@@ -112,6 +113,20 @@ macro_rules! handler {
     };
 }
 
+/// Opens the data folder and the database (migrating it), sweeps, and manages the state.
+fn start(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let data_dir = app.path().app_data_dir()?;
+    std::fs::create_dir_all(&data_dir)?;
+    let opened = checkflat_core::db::open(&data_dir.join("checkflat.db"))?;
+    // Startup maintenance (quarantine, never delete; skipped for a fresh database).
+    match checkflat_core::paths::sweep_orphans(&opened.conn, &data_dir, opened.freshly_created) {
+        Ok(report) => log::info!("sweep: {report:?}"),
+        Err(e) => log::warn!("sweep failed: {e}"),
+    }
+    app.manage(AppState::new(opened.conn, data_dir));
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -119,15 +134,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let opened = checkflat_core::db::open(&data_dir.join("checkflat.db"))?;
-            // Startup maintenance (quarantine, never delete; skipped for a fresh database).
-            match checkflat_core::paths::sweep_orphans(&opened.conn, &data_dir, opened.freshly_created) {
-                Ok(report) => log::info!("sweep: {report:?}"),
-                Err(e) => log::warn!("sweep failed: {e}"),
+            let data_dir = app.path().app_data_dir().ok();
+            // A start that cannot finish says why (and where the data is) before the app closes (D-029).
+            if let Err(e) = start(app) {
+                startup::fail(app, data_dir.as_deref(), e.as_ref());
             }
-            app.manage(AppState::new(opened.conn, data_dir));
             Ok(())
         });
     #[cfg(any(debug_assertions, feature = "dev-seed"))]

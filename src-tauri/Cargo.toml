@@ -32,6 +32,12 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 log = "0.4"
 
+# Desktop only (not compiled into the APK): the message shown when the app cannot start (startup.rs).
+# Same features as tauri-plugin-dialog's own rfd, so the build is one.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
+
 [dev-dependencies]
+tempfile = "3"
 # Same matcher and options as Tauri's asset-protocol scope (tauri/src/scope/fs.rs), for the scope test.
 glob = "0.3"
