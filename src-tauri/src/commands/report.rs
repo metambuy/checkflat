@@ -1,8 +1,10 @@
-//! The report action (Sprint 5; the latest report, Open and Share since Sprint 6a, D-028). The PDF
-//! and its metadata are written to `reports/` in the app data dir (`checkflat_core::reports`, one
-//! per project); Open and Share hand another app a copy under the cache's `reports/` through the
-//! Android plugin, and the WebView never passes a path: every command takes the project id. The
-//! database lock is held only for `collect`; the image work and the Typst compile run without it.
+//! The report action (Sprint 5; the latest report, Open and Share since Sprint 6a, D-028; Windows
+//! Open and Save a copy since Sprint 6b, D-029). The PDF and its metadata are written to `reports/`
+//! in the app data dir (`checkflat_core::reports`, one per project). Open and Share hand another
+//! app a copy under the cache's `reports/` (the Android plugin; the default PDF app on desktop).
+//! Save a copy writes where the user chooses in a save dialog opened from here. The WebView never
+//! passes a path: every command takes the project id. The database lock is held only for
+//! `collect`; the image work and the Typst compile run without it.
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -28,12 +30,21 @@ pub struct ReportResult {
     pub total_ms: u64,
 }
 
-/// The project whose report is being generated. One report at a time: two would double the
-/// ≈ 635 MB peak (D-026). `delete_project` refuses that project meanwhile, or the report's write
-/// would recreate the files its delete removed.
-static GENERATING: Mutex<Option<String>> = Mutex::new(None);
+/// A run in progress: its project and language (`en` | `pt`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Running {
+    pub project_id: String,
+    pub lang: String,
+}
 
-fn generating_slot() -> std::sync::MutexGuard<'static, Option<String>> {
+/// The report being generated. One report at a time: two would double the ≈ 635 MB peak (D-026).
+/// `delete_project` refuses that project meanwhile, or the report's write would recreate the files
+/// its delete removed. It outlives the page: a run goes on when the WebView reloads (an activity
+/// recreated in a living process), and [`report_running`] lets the reloaded card follow it (D-029).
+static GENERATING: Mutex<Option<Running>> = Mutex::new(None);
+
+fn generating_slot() -> std::sync::MutexGuard<'static, Option<Running>> {
     GENERATING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -41,17 +52,18 @@ fn busy() -> AppError {
     AppError::new("report_busy", "a report is already being generated")
 }
 
-/// Holds [`GENERATING`] for one run; released when dropped (also on an error or a cancelled call).
+/// Holds [`GENERATING`] for one run; released when dropped, at the end of the run, also on an
+/// error. Tauri never cancels a command, so a page that goes away does not release it.
 #[derive(Debug)]
 struct Generating;
 
 impl Generating {
-    fn start(project_id: &str) -> AppResult<Generating> {
+    fn start(project_id: &str, lang: &str) -> AppResult<Generating> {
         let mut slot = generating_slot();
         if slot.is_some() {
             return Err(busy());
         }
-        *slot = Some(project_id.to_string());
+        *slot = Some(Running { project_id: project_id.to_string(), lang: lang.to_string() });
         Ok(Generating)
     }
 }
@@ -65,19 +77,26 @@ impl Drop for Generating {
 /// `report_busy` if this project's report is being generated (for `delete_project`, which checks
 /// it under the database lock: a run that starts later reads the project only after the delete).
 pub(crate) fn refuse_while_generating(project_id: &str) -> AppResult<()> {
-    if generating_slot().as_deref() == Some(project_id) {
+    if generating_slot().as_ref().is_some_and(|r| r.project_id == project_id) {
         return Err(busy());
     }
     Ok(())
+}
+
+/// The run in progress, if any (D-029): a card mounted after its page was reloaded shows it and
+/// waits for it, instead of offering a Generate that would answer `report_busy`.
+#[tauri::command]
+pub fn report_running() -> Option<Running> {
+    generating_slot().clone()
 }
 
 /// `lang`: `en` | `pt` (chosen at generation time); `time_zone`: the device's IANA zone name;
 /// `utc_offset_min`: its current offset, the fallback when the zone is unknown (D-024).
 #[tauri::command]
 pub async fn generate_report(app: AppHandle, project_id: String, lang: String, time_zone: String, utc_offset_min: i32) -> AppResult<ReportResult> {
-    let _running = Generating::start(&project_id)?;
-    let started = Instant::now();
     let lang = Lang::parse(&lang);
+    let _running = Generating::start(&project_id, lang.code())?;
+    let started = Instant::now();
     let pid = project_id.clone();
     let source = run_db_with(app.clone(), move |c, dir| report::collect(c, dir, &pid, lang, &time_zone, utc_offset_min)).await?;
     // Read before `prepare` takes the source: the readable name and the metadata come from the
@@ -145,7 +164,8 @@ fn plugin_error(e: tauri_plugin_camera_capture::Error, no_app_code: &str) -> App
     }
 }
 
-/// Opens the project's latest report in a PDF viewer (Android); `no_pdf_app` when none is installed.
+/// Opens the project's latest report in a PDF viewer (Android) or the default PDF app (desktop);
+/// `no_pdf_app` when there is none.
 #[tauri::command]
 pub async fn open_report(app: AppHandle, project_id: String) -> AppResult<()> {
     let path = copy_for_sharing(&app, project_id).await?;
@@ -166,19 +186,71 @@ pub async fn share_report(app: AppHandle, project_id: String, title: String) -> 
         .map_err(|e| plugin_error(e, "no_share_app"))
 }
 
+/// "Save a copy…" (Windows, D-029): a save dialog proposing the report's readable name in
+/// Documents, then a copy of the latest report to the chosen file. Returns the saved file's name,
+/// or `None` when the dialog is cancelled. The dialog asks before replacing a file. Its PDF filter
+/// is also the default extension, so a name typed without `.pdf` gets it, and the replace prompt
+/// sees the final name. A copy that cannot be written (the file held open by a PDF viewer, a
+/// read-only folder) is `save_failed`. `title` is the dialog's title. Desktop only: Android shares
+/// the report, and its card never offers this action.
+#[tauri::command]
+pub async fn save_report_copy(app: AppHandle, window: tauri::Window, project_id: String, title: String) -> AppResult<Option<String>> {
+    #[cfg(desktop)]
+    return save_report_copy_desktop(app, window, project_id, title).await;
+    #[cfg(mobile)]
+    {
+        let _ = (app, window, project_id, title);
+        Err(AppError::new("internal", "Save a copy is a desktop action; Android shares the report"))
+    }
+}
+
+#[cfg(desktop)]
+async fn save_report_copy_desktop(app: AppHandle, window: tauri::Window, project_id: String, title: String) -> AppResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let pid = project_id.clone();
+    let meta = run_fs(app.clone(), move |dir| reports::latest(dir, &pid)).await?;
+    let meta = meta.ok_or_else(|| AppError::new("no_report", "there is no report to save"))?;
+    let documents = app.path().document_dir().ok();
+    let dialog = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let mut d = dialog.dialog().file().set_parent(&window).set_title(title).set_file_name(&meta.name).add_filter("PDF", &["pdf"]);
+        if let Some(dir) = documents {
+            d = d.set_directory(dir);
+        }
+        d.blocking_save_file()
+    })
+    .await
+    .map_err(AppError::internal)?;
+    let Some(picked) = picked else { return Ok(None) };
+    let dest = picked.into_path().map_err(|e| AppError::new("save_failed", e.to_string()))?;
+    let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let saved = run_fs(app, move |dir| reports::save_copy(dir, &project_id, &dest)).await;
+    match saved {
+        Ok(Some(_)) => Ok(Some(name)),
+        Ok(None) => Err(AppError::new("no_report", "there is no report to save")),
+        Err(e) if e.code == "io" => Err(AppError::new("save_failed", e.message)),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn one_report_at_a_time_and_the_delete_check() {
-        let first = Generating::start("p1").unwrap();
-        assert_eq!(Generating::start("p2").unwrap_err().code, "report_busy");
+    fn one_report_at_a_time_the_delete_check_and_the_running_query() {
+        assert_eq!(report_running(), None);
+        let first = Generating::start("p1", "pt").unwrap();
+        assert_eq!(report_running(), Some(Running { project_id: "p1".into(), lang: "pt".into() }));
+        assert_eq!(Generating::start("p2", "en").unwrap_err().code, "report_busy");
+        assert_eq!(report_running().unwrap().project_id, "p1", "a refused start leaves the run as it was");
         assert_eq!(refuse_while_generating("p1").unwrap_err().code, "report_busy");
         assert!(refuse_while_generating("p2").is_ok());
         drop(first);
+        assert_eq!(report_running(), None);
         assert!(refuse_while_generating("p1").is_ok());
-        let again = Generating::start("p2").unwrap();
+        let again = Generating::start("p2", "en").unwrap();
+        assert_eq!(report_running().unwrap().lang, "en");
         drop(again);
     }
 }

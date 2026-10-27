@@ -2,6 +2,7 @@ mod common;
 
 use checkflat_core::paths::{self, sweep_orphans};
 use checkflat_core::repo::projects;
+use checkflat_core::reports::{self, NewReport};
 use checkflat_core::{db, ids};
 use common::*;
 use std::fs;
@@ -14,7 +15,17 @@ fn touch(p: &Path, bytes: &[u8]) {
 
 fn set_old(p: &Path, days: u64) {
     let t = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 24 * 3600);
-    let f = fs::File::options().write(true).open(p).or_else(|_| fs::File::open(p)).unwrap();
+    let mut options = fs::File::options();
+    options.write(true);
+    // Windows opens a directory only with FILE_FLAG_BACKUP_SEMANTICS (found by the core tests' first
+    // Windows run, D-029); Unix opens it read-only below, which is enough to set its times.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        options.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    }
+    let f = options.open(p).or_else(|_| fs::File::open(p)).unwrap();
     f.set_modified(t).unwrap();
 }
 
@@ -143,6 +154,7 @@ fn reports_of_deleted_projects_are_removed_and_live_ones_kept() {
     let data = dir.path();
     let conn = db::open(&data.join("checkflat.db")).unwrap().conn;
     let live = projects::create(&conn, "Live", "").unwrap();
+    reports::write_report(data, &live.id, "20261022T100000000Z", b"%PDF", new_report()).unwrap();
     let dead = ids::new_id();
     let reports_dir = data.join("reports");
     let kept = [
@@ -158,7 +170,7 @@ fn reports_of_deleted_projects_are_removed_and_live_ones_kept() {
         format!("{dead}.json"),
         format!("{dead}.json.part"),
     ];
-    for name in kept.iter().chain(removed.iter()) {
+    for name in kept.iter().skip(2).chain(removed.iter()) {
         touch(&reports_dir.join(name), b"x");
     }
     // A directory with a report-like name is not a file: left alone.
@@ -175,6 +187,49 @@ fn reports_of_deleted_projects_are_removed_and_live_ones_kept() {
         assert!(reports_dir.join(name).exists(), "{name} kept");
     }
     assert!(dead_dir.is_dir());
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+}
+
+fn new_report() -> NewReport {
+    NewReport { name: "Live - 2026-10-22 - PT.pdf".into(), lang: "pt".into(), pages: 1, created_at: "2026-10-22T10:00:00.000Z".into() }
+}
+
+/// D-029: a kill during a generation can leave part files, or a new PDF that the metadata does not
+/// name yet (between the two renames), or the earlier PDF (before the prune). The next start
+/// removes them and keeps the report the metadata names.
+#[test]
+fn leftovers_of_an_interrupted_generation_are_removed_at_startup() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let conn = db::open(&data.join("checkflat.db")).unwrap().conn;
+    let live = projects::create(&conn, "Live", "").unwrap();
+    let (named, meta) = reports::write_report(data, &live.id, "20261022T100000000Z", b"%PDF-named", new_report()).unwrap();
+    let id = &live.id;
+    // A project with a report from before Sprint 6a (no metadata): its PDF is never shown.
+    let old = projects::create(&conn, "Old", "").unwrap();
+    let reports_dir = data.join("reports");
+    let leftovers = [
+        format!("{id}-20261022T110000000Z.pdf.part"),
+        format!("{id}.json.part"),
+        format!("{id}-20261022T090000000Z.pdf"),
+        format!("{id}-20261022T120000000Z.pdf"),
+        format!("{}-20261012T100000000Z.pdf", old.id),
+    ];
+    for name in &leftovers {
+        touch(&reports_dir.join(name), b"x");
+    }
+    touch(&reports_dir.join(format!("{id}-notes.txt")), b"not a report");
+
+    let report = sweep_orphans(&conn, data, false).unwrap();
+    let mut got = report.removed.clone();
+    got.sort();
+    let mut expected: Vec<String> = leftovers.iter().map(|n| format!("reports/{n}")).collect();
+    expected.sort();
+    assert_eq!(got, expected);
+    assert!(named.exists());
+    assert!(reports_dir.join(format!("{id}.json")).exists());
+    assert!(reports_dir.join(format!("{id}-notes.txt")).exists());
+    assert_eq!(reports::latest(data, id).unwrap(), Some(meta), "the named report is still the latest");
     assert!(report.warnings.is_empty(), "{:?}", report.warnings);
 }
 

@@ -59,4 +59,9 @@ impl<R: Runtime> CameraCapture<R> {
     pub fn app_version(&self) -> crate::Result<AppVersion> {
         self.0.run_mobile_plugin("appVersion", ()).map_err(Into::into)
     }
+
+    /// Moves the app's task to the background, as Home does (`Activity.moveTaskToBack`).
+    pub fn move_task_to_back(&self) -> crate::Result<()> {
+        self.0.run_mobile_plugin("moveTaskToBack", ()).map_err(Into::into)
+    }
 }

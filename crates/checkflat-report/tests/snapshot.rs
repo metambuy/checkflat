@@ -1,8 +1,8 @@
 mod common;
 
 use checkflat_core::repo::tiles::{self, TILE};
-use checkflat_report::snapshot::{self, CROP_PX};
-use image::GenericImageView;
+use checkflat_report::snapshot::{self, CROP_GREY_LEVELS, CROP_PX};
+use image::{GenericImageView, Pixel};
 
 /// Decodes a snapshot and returns the pixel at `(fx, fy)` of its size.
 fn pixel_at(png: &[u8], fx: f64, fy: f64) -> [u8; 3] {
@@ -15,6 +15,15 @@ fn pixel_at(png: &[u8], fx: f64, fy: f64) -> [u8; 3] {
 
 fn colour_type(png: &[u8]) -> image::ColorType {
     image::load_from_memory(png).unwrap().color()
+}
+
+/// What a crop shows for a uniform tile of `rgb`: the `image` crate's luma, rounded to the nearest
+/// of the crop's grey levels (computed here independently of the module's integer arithmetic).
+fn crop_grey(rgb: [u8; 3]) -> [u8; 3] {
+    let luma = f64::from(image::Rgb(rgb).to_luma()[0]);
+    let step = 255.0 / f64::from(CROP_GREY_LEVELS - 1);
+    let v = ((luma / step).round() * step).round() as u8;
+    [v, v, v]
 }
 
 #[test]
@@ -34,16 +43,23 @@ fn crop_comes_from_the_4096_level_and_shows_the_tile_under_the_pin() {
     let crop = snapshot::crop(&tiles_dir, level, &win).unwrap();
     assert_eq!(crop.width.max(crop.height), CROP_PX, "819 px window resized to 800");
     assert!((crop.aspect() - 1.0).abs() < 0.01, "square window");
-    assert!(!crop.grey && colour_type(&crop.png) == image::ColorType::Rgb8, "coloured tiles stay RGB");
+    assert!(crop.grey && colour_type(&crop.png) == image::ColorType::L8, "crops are greyscale, also of a coloured plan (D-029)");
 
-    // The pin's pixel is the colour of the 4096-level tile under it.
+    // The pin's pixel is the grey of the 4096-level tile under it.
     let (px, py) = snapshot::pin_in_window(&win, xn, yn);
     let lx = (xn * f64::from(level.width)) as u32;
     let ly = (yn * f64::from(level.height)) as u32;
-    assert_eq!(pixel_at(&crop.png, px, py), common::tile_colour(4096, lx / TILE, ly / TILE));
+    assert_eq!(pixel_at(&crop.png, px, py), crop_grey(common::tile_colour(4096, lx / TILE, ly / TILE)));
     // Its top-left corner is the tile at the window's origin.
     let (ox, oy) = ((win.x * f64::from(level.width)) as u32, (win.y * f64::from(level.height)) as u32);
-    assert_eq!(pixel_at(&crop.png, 0.0, 0.0), common::tile_colour(4096, ox / TILE, oy / TILE));
+    assert_eq!(pixel_at(&crop.png, 0.0, 0.0), crop_grey(common::tile_colour(4096, ox / TILE, oy / TILE)));
+
+    // At most CROP_GREY_LEVELS values, every one of them a level (multiples of 17 for 16 levels),
+    // including the resize filter's in-between values at the tile borders.
+    let luma = image::load_from_memory(&crop.png).unwrap().to_luma8();
+    let values: std::collections::BTreeSet<u8> = luma.pixels().map(|p| p[0]).collect();
+    assert!(values.len() <= usize::from(CROP_GREY_LEVELS) && values.len() > 1, "{values:?}");
+    assert!(values.iter().all(|&v| crop_grey([v, v, v])[0] == v), "only level values: {values:?}");
 }
 
 #[test]
@@ -86,7 +102,7 @@ fn a_plan_without_colour_gives_greyscale_snapshots() {
     assert_eq!(crop.width.max(crop.height), CROP_PX);
     let (px, py) = snapshot::pin_in_window(&win, xn, yn);
     let (lx, ly) = ((xn * f64::from(level.width)) as u32, (yn * f64::from(level.height)) as u32);
-    assert_eq!(pixel_at(&crop.png, px, py), common::tile_grey(4096, lx / TILE, ly / TILE));
+    assert_eq!(pixel_at(&crop.png, px, py), crop_grey(common::tile_grey(4096, lx / TILE, ly / TILE)));
 }
 
 #[test]
@@ -104,7 +120,7 @@ fn a_partial_pyramid_still_gives_a_crop_from_its_top_level() {
     let crop = snapshot::crop(&tiles_dir, level, &win).unwrap();
     assert!(crop.width.max(crop.height) < CROP_PX, "no upscaling: {} px", crop.width.max(crop.height));
     // Clamped to the bottom-left corner: the crop's bottom-left pixel is the level's last row, first column.
-    assert_eq!(pixel_at(&crop.png, 0.0, 1.0), common::tile_colour(2048, 0, level.rows - 1));
+    assert_eq!(pixel_at(&crop.png, 0.0, 1.0), crop_grey(common::tile_colour(2048, 0, level.rows - 1)));
 }
 
 #[test]

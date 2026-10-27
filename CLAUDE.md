@@ -5,3 +5,4 @@
 - Stack: Tauri v2, Svelte + TypeScript, Rust core, SQLite (rusqlite), PDF.js.
 - Targets: Android (phone + tablet) and Windows.
 
+- Never take a screenshot of Martín's screen (full or partial) without asking first; for app checks use the emulator/adb screencap or the app window only.

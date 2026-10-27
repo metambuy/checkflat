@@ -1,6 +1,6 @@
 //! Photo preparation for the report. [`report_photo`] decodes the stored JPEG, brings it to print
 //! size and, when the photo has an annotation, draws the shapes on that copy ([`flatten`]) before
-//! encoding. The stored file is never changed, and the shapes go on the ≤ 800 px copy rather than
+//! encoding. The stored file is never changed, and the shapes go on the ≤ 640 px copy rather than
 //! the full-size image, so nothing is added to the report's memory peak (Typst holds every decoded
 //! image for the whole compile, D-024). Strokes are antialiased by `tiny-skia`, which the PDF
 //! engine already brings in (typst-pdf → krilla-svg → resvg).
@@ -14,10 +14,11 @@ use tiny_skia::{IntSize, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Rect, St
 
 use crate::{ReportError, Result};
 
-/// Photos print at 80 mm wide; 800 px is ~250 dpi there. Typst keeps every decoded image in
-/// memory for the whole compile (D-024), so this also bounds the report's peak memory.
-pub const REPORT_PHOTO_PX: u32 = 800;
-pub const REPORT_JPEG_QUALITY: u8 = 80;
+/// Photos print at 80 mm wide; 640 px is ~200 dpi there. Typst keeps every decoded image in
+/// memory for the whole compile (D-024), so this also bounds the report's peak memory: 640 px
+/// instead of 800 px is 0.52 MB less per landscape photo, ≈ 78 MB at 50 × 3 (D-029).
+pub const REPORT_PHOTO_PX: u32 = 640;
+pub const REPORT_JPEG_QUALITY: u8 = 75;
 
 /// A photo ready for the PDF, with its pixel size (the template sizes the frame from it).
 #[derive(Debug, Clone, PartialEq)]
@@ -27,7 +28,7 @@ pub struct ReportPhoto {
     pub height: u32,
 }
 
-/// Downscales to at most [`REPORT_PHOTO_PX`] on the long side (JPEG q80) and draws the annotation
+/// Downscales to at most [`REPORT_PHOTO_PX`] on the long side (JPEG [`REPORT_JPEG_QUALITY`]) and draws the annotation
 /// on that copy. A photo that is already small enough and has nothing drawn is embedded as stored
 /// (it is a JPEG without EXIF, D-022).
 pub fn report_photo(bytes: &[u8], annotation: Option<&Annotation>) -> Result<ReportPhoto> {
@@ -42,7 +43,7 @@ pub fn report_photo(bytes: &[u8], annotation: Option<&Annotation>) -> Result<Rep
     let mut rgb = if small {
         img.into_rgb8()
     } else {
-        // The full decode goes before the drawing and the encode: one ≤ 800 px buffer from here on.
+        // The full decode goes before the drawing and the encode: one report-size buffer from here on.
         let resized = img.resize(REPORT_PHOTO_PX, REPORT_PHOTO_PX, FilterType::Triangle).into_rgb8();
         drop(img);
         resized
@@ -155,13 +156,15 @@ mod tests {
     fn report_photo_caps_the_long_side_and_keeps_small_ones() {
         let big = report_photo(&jpeg(1600, 1200), None).unwrap();
         let dims = image::load_from_memory(&big.jpeg).unwrap();
-        assert_eq!((dims.width(), dims.height()), (800, 600));
-        assert_eq!((big.width, big.height), (800, 600));
+        assert_eq!((dims.width(), dims.height()), (640, 480));
+        assert_eq!((big.width, big.height), (640, 480));
         let tall = report_photo(&jpeg(900, 1600), None).unwrap();
-        assert_eq!((tall.width, tall.height), (450, 800));
-        let small = jpeg(640, 480);
+        assert_eq!((tall.width, tall.height), (360, 640));
+        let at_cap = jpeg(640, 480);
+        assert_eq!(report_photo(&at_cap, None).unwrap().jpeg, at_cap, "at the cap: embedded as stored");
+        let small = jpeg(480, 360);
         let kept = report_photo(&small, None).unwrap();
-        assert_eq!((kept.jpeg, kept.width, kept.height), (small.clone(), 640, 480), "embedded as stored");
+        assert_eq!((kept.jpeg, kept.width, kept.height), (small.clone(), 480, 360), "embedded as stored");
         // Nothing drawn (an empty annotation) is the same as no annotation.
         let kept = report_photo(&small, Some(&Annotation::new(vec![]))).unwrap();
         assert_eq!(kept.jpeg, small);
@@ -181,45 +184,56 @@ mod tests {
 
     #[test]
     fn ellipse_arrow_and_freehand_are_drawn_red_on_the_downscaled_copy() {
-        // 1600×1200 → 800×600; stroke 6 px; the ellipse's ring passes (600,300), (200,300), (400,150), (400,450).
+        // 1600×1200 → 640×480 (the cap); stroke 4.8 px. Probes are fractions of the copy, moved by
+        // whole strokes where a shape's own geometry is in pixels (the chevron).
         let src = grey(1600, 1200);
         let out = report_photo(&src, Some(&ellipse(0.5, 0.5, 0.25, 0.25))).unwrap();
-        assert_eq!((out.width, out.height), (800, 600));
+        assert_eq!((out.width, out.height), (640, 480));
+        let (fw, fh) = (f64::from(out.width), f64::from(out.height));
+        let stroke = stroke_px(out.width, out.height);
+        let at = |fx: f64, fy: f64, dx: f64, dy: f64| ((fx * fw + dx).round() as u32, (fy * fh + dy).round() as u32);
         let img = decoded(&out.jpeg);
-        for (x, y) in [(600, 300), (200, 300), (400, 150), (400, 450)] {
+        for (fx, fy) in [(0.75, 0.5), (0.25, 0.5), (0.5, 0.25), (0.5, 0.75)] {
+            let (x, y) = at(fx, fy, 0.0, 0.0);
             assert!(is_red(img.get_pixel(x, y)), "ring at {x},{y}: {:?}", img.get_pixel(x, y));
         }
-        for (x, y) in [(400, 300), (20, 20), (780, 580), (400, 120)] {
+        for (fx, fy) in [(0.5, 0.5), (0.025, 0.033), (0.975, 0.967), (0.5, 0.2)] {
+            let (x, y) = at(fx, fy, 0.0, 0.0);
             assert!(is_grey(img.get_pixel(x, y)), "untouched at {x},{y}: {:?}", img.get_pixel(x, y));
         }
 
-        // Arrow (0.1,0.5) → (0.9,0.5): shaft on y = 300 from x = 80 to 720, chevron legs 24 px long
-        // from the tip at 30°: their midpoints are near (710, 294) and (710, 306).
+        // Arrow (0.1,0.5) → (0.9,0.5): the shaft along the middle, chevron legs 4 strokes long from
+        // the tip at 30°: their midpoints sit (−√3·stroke, ±stroke) from the tip.
         let arrow = Annotation::new(vec![Shape::Arrow { x1: 0.1, y1: 0.5, x2: 0.9, y2: 0.5 }]);
         let img = decoded(&report_photo(&src, Some(&arrow)).unwrap().jpeg);
-        for (x, y) in [(400, 300), (80, 300), (720, 300), (710, 294), (710, 306)] {
+        let leg = -stroke * 3f64.sqrt();
+        for (fx, dx, dy) in [(0.5, 0.0, 0.0), (0.1, 0.0, 0.0), (0.9, 0.0, 0.0), (0.9, leg, -stroke), (0.9, leg, stroke)] {
+            let (x, y) = at(fx, 0.5, dx, dy);
             assert!(is_red(img.get_pixel(x, y)), "arrow at {x},{y}: {:?}", img.get_pixel(x, y));
         }
-        for (x, y) in [(720, 270), (760, 300), (690, 320), (60, 300)] {
+        for (fx, fy) in [(0.9, 0.45), (0.95, 0.5), (0.8625, 0.533), (0.075, 0.5)] {
+            let (x, y) = at(fx, fy, 0.0, 0.0);
             assert!(is_grey(img.get_pixel(x, y)), "untouched at {x},{y}: {:?}", img.get_pixel(x, y));
         }
 
-        // Freehand through (160,120), (320,180), (480,120).
+        // Freehand "V" through (0.2,0.2), (0.4,0.3), (0.6,0.2).
         let free = Annotation::new(vec![Shape::Freehand { pts: vec![[0.2, 0.2], [0.4, 0.3], [0.6, 0.2]] }]);
         let img = decoded(&report_photo(&src, Some(&free)).unwrap().jpeg);
-        for (x, y) in [(160, 120), (320, 180), (480, 120), (240, 150), (400, 150)] {
+        for (fx, fy) in [(0.2, 0.2), (0.4, 0.3), (0.6, 0.2), (0.3, 0.25), (0.5, 0.25)] {
+            let (x, y) = at(fx, fy, 0.0, 0.0);
             assert!(is_red(img.get_pixel(x, y)), "freehand at {x},{y}: {:?}", img.get_pixel(x, y));
         }
-        assert!(is_grey(img.get_pixel(320, 120)), "inside the V, not on it");
+        let (x, y) = at(0.4, 0.2, 0.0, 0.0);
+        assert!(is_grey(img.get_pixel(x, y)), "inside the V, not on it");
     }
 
     /// Portrait photos: the fractions apply to the photo's own width and height, so an ellipse with
     /// rx = ry = 0.25 is a tall oval (not a circle of radius w/4), an arrow down the middle runs
     /// along the long side, and the stroke follows the long side (the height). A 1200×1600 photo
-    /// (downscaled to 600×800) and a 480×640 one (kept at its size, the small path).
+    /// (downscaled to 480×640) and a 480×640 one (at the cap: kept at its size, the small path).
     #[test]
     fn portrait_photos_get_their_shapes_where_the_app_shows_them() {
-        for (src, (w, h)) in [(grey(1200, 1600), (600u32, 800u32)), (grey(480, 640), (480, 640))] {
+        for (src, (w, h)) in [(grey(1200, 1600), (480u32, 640u32)), (grey(480, 640), (480, 640))] {
             let (fw, fh) = (f64::from(w), f64::from(h));
             let stroke = stroke_px(w, h);
             assert_eq!(stroke, STROKE_FRACTION * fh, "the long side is the height");

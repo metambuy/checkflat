@@ -9,6 +9,7 @@
   import { onDestroy, onMount, untrack } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { api, asAppError, type AppError, type Fraction, type Observation } from "../api";
+  import { errorText } from "../errors";
   import { t } from "../i18n.svelte";
   import { livePreview } from "../livePreview";
   import { capturePath, pickPath, stagePath } from "../photoSource";
@@ -29,6 +30,7 @@
     onstate,
     saving,
     error,
+    locked = false,
     onsave,
     oncancel,
     ondismiss,
@@ -43,6 +45,8 @@
     saving: boolean;
     /** The failed save, shown here so the user can fix the input and retry. */
     error: AppError | null;
+    /** Inert while a question about the sheet ("Discard?") is open over it. */
+    locked?: boolean;
     onsave: (fraction: string, description: string, photos: SheetPhotos) => void;
     oncancel: () => void;
     ondismiss: () => void;
@@ -171,7 +175,7 @@
 
 <div class="backdrop" role="presentation">
   <!-- Escape is marked handled so the plan screen's Back does not act on the same key press. While the annotation editor (a sibling, not a child) is open the sheet is inert: Tab cannot reach it and its own Escape handler stays out of the way. -->
-  <div class="dialog sheet" role="dialog" aria-modal="true" tabindex="-1" inert={annotating !== null} onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); if (!saving) oncancel(); } }}>
+  <div class="dialog sheet" role="dialog" aria-modal="true" tabindex="-1" inert={annotating !== null || locked} onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); if (!saving) oncancel(); } }}>
   <form onsubmit={submit}>
     <h2>{editing ? t("sheet.title_edit") : t("sheet.title")}</h2>
     <ErrorBanner error={error ?? photoError} ondismiss={() => { ondismiss(); photoError = null; }} />
@@ -195,7 +199,7 @@
       </div>
       <p class="preview" class:bad={previewError !== null} aria-live="polite">
         {#if previewError}
-          {previewError.code === "fraction_required" ? t("error.fraction_required") : previewError.message}
+          {errorText(previewError, t)}
         {:else if preview !== null}
           {t("sheet.will_be", { ref: preview })}
         {/if}

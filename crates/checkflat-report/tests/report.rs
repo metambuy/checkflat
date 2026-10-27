@@ -91,15 +91,16 @@ fn report_has_a_cover_and_the_observations_in_a_continuous_list_newest_first() {
     assert_eq!(input.stats.skipped_photos, 0);
     assert_eq!(input.stats.without_snapshot, 1);
     assert_eq!(input.files.iter().filter(|(n, _)| n.starts_with("img/overview")).count(), 1);
-    // Report photos are ≤ 800 px; a small one is embedded as stored.
+    // Report photos are ≤ 640 px (REPORT_PHOTO_PX); a small one is embedded as stored.
     let big = input.files.iter().find(|(n, _)| n == "img/photo-1-0.jpg").unwrap();
     let img = image::load_from_memory(&big.1).unwrap();
-    assert_eq!((img.width(), img.height()), (800, 600));
+    assert_eq!((img.width(), img.height()), (640, 480));
 
     let r = render(&input).unwrap();
     assert!(r.pdf.starts_with(b"%PDF"));
     save("report-pt.pdf", &r.pdf);
-    // Cover; the A4 observation (no snapshot) with both photos; the A1 observation (D-025).
+    // Cover; the A4 observation (no snapshot) with both photos in one row; the A1 observation, whose
+    // head, description and photo do not fit the rest of that page (D-025, D-029).
     assert_eq!(r.pages, 3);
     eprintln!("[measure] pt: {} bytes, compile {} ms, pdf {} ms, stats {:?}", r.pdf.len(), r.compile_ms, r.pdf_ms, input.stats);
 
@@ -128,14 +129,14 @@ fn annotated_photos_reach_the_report_drawn() {
     let file = |name: &str| input.files.iter().find(|(f, _)| f == name).map(|(_, b)| b.clone()).unwrap_or_else(|| panic!("{name} missing"));
 
     let img = image::load_from_memory(&file("img/photo-0-0.jpg")).unwrap().to_rgb8();
-    assert_eq!(img.dimensions(), (800, 600));
-    let ring = img.get_pixel(200, 300);
+    assert_eq!(img.dimensions(), (640, 480));
+    let ring = img.get_pixel(160, 240);
     assert!(ring[0] > 180 && ring[1] < 60 && ring[2] < 60, "red on the ring: {ring:?}");
-    let centre = img.get_pixel(400, 300);
+    let centre = img.get_pixel(320, 240);
     assert!(centre[1] > 90, "the fixture's own colour inside the ring: {centre:?}");
 
     let stored = photos::list_for_observation(&conn, &obs).unwrap()[1].file_path.resolve(data);
-    assert_eq!(file("img/photo-0-1.jpg"), std::fs::read(stored).unwrap(), "no shapes, ≤ 800 px: embedded as stored");
+    assert_eq!(file("img/photo-0-1.jpg"), std::fs::read(stored).unwrap(), "no shapes, ≤ 640 px: embedded as stored");
     assert_eq!(input.stats.photos, 2);
     assert_eq!(input.stats.skipped_photos, 0);
 }
@@ -165,12 +166,13 @@ fn empty_project_and_missing_photo_file() {
     assert_eq!((input.stats.photos, input.stats.skipped_photos, input.stats.without_snapshot), (2, 1, 1));
     let captions: Vec<&str> = input.data.observations[0].photos.iter().map(|p| p.caption.as_str()).collect();
     assert_eq!(captions, ["1. 01.01.2026 00:00", "2. 01.01.2026 02:00"], "the third photo is numbered 2");
-    assert_eq!(render(&input).unwrap().pages, 2, "cover; the head (no snapshot) and two square photos fit one page");
+    assert_eq!(render(&input).unwrap().pages, 2, "cover; the head (no snapshot) and two square photos in one row fit one page");
     assert!(matches!(collect(&conn, data, "nope", Lang::En, "UTC", 0), Err(checkflat_report::ReportError::Core(checkflat_core::CoreError::NotFound))));
 }
 
-/// Three photos one below the other take more than a page with the head: the list flows on,
-/// and a description longer than a page is not kept together (it would be clipped) but printed.
+/// Three photos (a row of two and a row of one, D-029) take more than a page with the head: the
+/// list flows on, and a description longer than a page is not kept together (it would be clipped)
+/// but printed. The photo layout itself is pinned in `photo_layout.rs`.
 #[test]
 fn long_blocks_flow_over_pages() {
     let dir = tempfile::tempdir().unwrap();
@@ -188,7 +190,7 @@ fn long_blocks_flow_over_pages() {
     };
     common::observation(&conn, data, &plan, 0.5, 0.5, "short", &three(0));
     let input = prepare(data, collect(&conn, data, &pid, Lang::En, "UTC", 0).unwrap()).unwrap();
-    assert_eq!(render(&input).unwrap().pages, 3, "cover + head/description/first photos + the rest");
+    assert_eq!(render(&input).unwrap().pages, 3, "cover + head/description/first row + the second row");
 
     common::observation(&conn, data, &plan, 0.5, 0.5, &PT_TEXT.repeat(40), &three(3));
     let input = prepare(data, collect(&conn, data, &pid, Lang::En, "UTC", 0).unwrap()).unwrap();
@@ -287,7 +289,8 @@ fn write_fixture() {
 
 /// `cargo test --release -p checkflat-report --test report -- --ignored --nocapture measure`
 /// With `CHECKFLAT_DATA_DIR=<an app data dir>` (e.g. pulled from the emulator after seeding),
-/// measures that directory's first project instead of the synthetic fixture.
+/// measures that directory's most recently updated project instead of the synthetic fixture, or
+/// the project named by `CHECKFLAT_PROJECT`.
 #[test]
 #[ignore]
 fn measure_50_observations() {
@@ -297,7 +300,11 @@ fn measure_50_observations() {
     let (conn, pid) = match &real {
         Some(_) => {
             let conn = common::open(data);
-            let pid: String = conn.query_row("SELECT id FROM project ORDER BY updated_at DESC LIMIT 1", [], |r| r.get(0)).unwrap();
+            let named = std::env::var("CHECKFLAT_PROJECT").ok();
+            let pid: String = match &named {
+                Some(name) => conn.query_row("SELECT id FROM project WHERE name = ?1", [name], |r| r.get(0)).unwrap(),
+                None => conn.query_row("SELECT id FROM project ORDER BY updated_at DESC LIMIT 1", [], |r| r.get(0)).unwrap(),
+            };
             (conn, pid)
         }
         None => fixture_50(data),

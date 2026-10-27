@@ -1,5 +1,6 @@
 mod common;
 
+use checkflat_core::error::CodeProblem;
 use checkflat_core::models::Plan;
 use checkflat_core::refs::Scope;
 use checkflat_core::repo::{fractions, observations, plans, projects};
@@ -120,7 +121,8 @@ fn invalid_input_is_rejected_without_side_effects() {
         let err = observations::create_observation(&conn, dir.path(), &plan.id, x, y, "", "", &common::one_photo(&conn)).unwrap_err();
         assert!(matches!(err, CoreError::Validation(_)), "{x},{y}: {err}");
     }
-    assert!(matches!(create(&conn, &plan, "a b"), Err(CoreError::Validation(_))), "bad fraction code");
+    assert!(matches!(create(&conn, &plan, "a b"), Err(CoreError::InvalidCode(CodeProblem::InvalidChar))), "bad fraction code");
+    assert!(matches!(create(&conn, &plan, &"a".repeat(17)), Err(CoreError::InvalidCode(CodeProblem::TooLong { max: 16 }))), "fraction code too long");
     assert_eq!(next_seq(&conn, &plan.project_id), 1);
     assert!(fractions::list(&conn, &plan.project_id).unwrap().is_empty());
     assert!(matches!(observations::create_observation(&conn, dir.path(), "missing", 0.5, 0.5, "", "", &common::one_photo(&conn)), Err(CoreError::NotFound)));
@@ -233,7 +235,7 @@ fn scope_locks_once_a_number_was_issued() {
         projects::update_ref_settings(&conn, &pid, "LAM", "{PROJ}-{SEQ:2}", Scope::Fraction),
         Err(CoreError::InvalidTemplate(_))
     ));
-    assert!(matches!(projects::update_ref_settings(&conn, &pid, "L M", TEMPLATE, Scope::Project), Err(CoreError::Validation(_))));
+    assert!(matches!(projects::update_ref_settings(&conn, &pid, "L M", TEMPLATE, Scope::Project), Err(CoreError::InvalidCode(CodeProblem::InvalidChar))));
     assert!(matches!(projects::update_ref_settings(&conn, "missing", "", TEMPLATE, Scope::Project), Err(CoreError::NotFound)));
 
     let only = create(&conn, &plan, "").unwrap();

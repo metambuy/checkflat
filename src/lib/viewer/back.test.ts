@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { backStep } from "./back.ts";
 
-const idle = { dialog: false, sheet: false, adding: false, draft: false, saving: false, selected: false };
+const idle = { dialog: false, discard: false, sheet: false, adding: false, draft: false, saving: false, selected: false };
 
 test("with the delete dialog open, Back closes the dialog and nothing else", () => {
   // The dialog is opened from a selected pin: the selection must survive the first Back.
@@ -40,4 +40,13 @@ test("move mode is a draft to Back: one press leaves it (Cancel), a move being s
   assert.equal(backStep({ ...idle, draft: true, selected: true }), "draft", "Back cancels the move, the pin stays selected");
   assert.equal(backStep({ ...idle, selected: true }), "selection", "the next Back deselects");
   assert.equal(backStep({ ...idle, draft: true, saving: true, selected: true }), "busy");
+});
+
+test("with the \"Discard?\" question open, Back means keep editing: it closes the question and leaves the sheet", () => {
+  // The question is asked over an open sheet (create: with a draft; edit: with the pin selected).
+  assert.equal(backStep({ ...idle, discard: true, sheet: true, draft: true }), "discard");
+  assert.equal(backStep({ ...idle, discard: true, sheet: true, selected: true }), "discard");
+  // Once answered "keep editing" the next Back asks again (the sheet step), it never discards by itself.
+  assert.equal(backStep({ ...idle, discard: false, sheet: true, draft: true }), "sheet");
+  assert.equal(backStep({ ...idle, dialog: true, discard: true, sheet: true }), "dialog", "the delete dialog still comes first");
 });

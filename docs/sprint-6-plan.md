@@ -1,8 +1,9 @@
-<!-- Approved 2026-10-22 (plan mode, Claude Code), with Martín's decisions: copy to cache/reports/ on Open/Share, remove the template's FileProvider, a CI guard on the APK's FileProvider, PT labels "Abrir"/"Partilhar". The implementation record is docs/decisions.md D-028. Part 6b is planned when it starts. -->
+<!-- Part 6a approved 2026-10-22 (plan mode, Claude Code), with Martín's decisions: copy to cache/reports/ on Open/Share, remove the template's FileProvider, a CI guard on the APK's FileProvider, PT labels "Abrir"/"Partilhar". Its implementation record is docs/decisions.md D-028.
+Part 6b approved 2026-10-26 (plan mode, Claude Code), with Martín's decisions: all crops grey at 16 levels; no Windows machine, so the friend runs the Windows test during the preview after the merge and Windows gets more CI coverage (core tests, file-locking tests); a build number on Windows too; two Windows checklists (technical in D-029, a short PT one for the tester); the annotation hint matches the input; the v0.1 super review is set up by Martín, not started here. Its implementation record is docs/decisions.md D-029. -->
 
 # Sprint 6 — report Open/Share (6a), Windows save and smaller report images (6b) (plan)
 
-Part **6a** is planned in full below. Part **6b** (Windows share/save, smaller report images — 16-level greyscale crops and 640 px / q75 photos, D-024/D-026/D-027 —, the HyperOS app-switch check, the end-of-Sprint-6 super review with the deferred Windows exit test) gets its own plan section when it starts, on a branch `sprint-6b` from `main` after 6a merges.
+Part **6a** is planned in full below. Part **6b** has its own plan section after it ([Part 6b](#part-6b--windows-open--save-a-copy-smaller-report-images-app-switch-during-generation-v010)): Windows Open / Save a copy, the smaller report images (16-level greyscale crops and 640 px / q75 photos, D-024/D-026/D-027), the HyperOS app-switch check and v0.1.0. It is on branch `sprint-6b` from `main` (`fc362f1`). The end-of-Sprint-6 super review follows 6b and is set up by Martín.
 
 # Part 6a — Android Open/Share for the report, app version
 
@@ -169,3 +170,278 @@ Verified facts that shape the design:
 10. Anything odd: a slow Open/Share (the copy should take well under a second), a chooser missing apps, a wrong name.
 
 Pass: 1–8 as described (9 if tested). I record the results in D-028 with your words, as in D-027.
+
+---
+
+# Part 6b — Windows Open / Save a copy, smaller report images, app switch during generation, v0.1.0
+
+## Context
+6b is the last part before v0.1, the friend field test. 6a (D-028, merged as `fc362f1`) gave Android Open/Share and the report card. 6b covers four things:
+- **Windows report actions:** M9 "save (Windows)".
+- **Smaller report images (required):** the P30 peak is 641.6 MB against the ≈ 650 MB limit, and at 1.5 s sampling the true peak is likely ≥ 650 MB. The annotated 50 × 3 report is 18.4 MB against ≈ 20 MB email limits (D-024, D-026, D-027).
+- **App switch during generation:** HyperOS kills background apps.
+- **The 0.1.0 version.**
+
+Branch `sprint-6b` from `main` (`fc362f1`), one PR, decision **D-029**. Martín's decisions (plan review, 2026-10-26):
+- **All crops grey at 16 levels.** Colour crops become grey too; the pin and the red box are vectors and stay red.
+- **No Windows machine here.** The friend runs the Windows test on his laptop during the preview, after this PR is merged. So Windows gets more CI coverage: the core and report tests run on the windows job, plus file-locking tests. D-029 marks the Windows results "pending preview"; they arrive later in a docs-only commit.
+- **A build number on Windows too:** "Versão 0.1.0 (build N)" on both platforms.
+- **Two Windows checklists:** the technical one in D-029, and a short PT one for the tester (plain text, for his guide).
+- **The annotation hint matches the input:** desktop gets a mouse wording, Android is unchanged.
+- **The v0.1 super review is not started here.** Martín sets it up; 6b stops when the PR is open with CI green and the checks are recorded.
+
+Facts from the code that shape the design:
+- **Crops** (`crates/checkflat-report/src/snapshot.rs`): `crop()` → `encode()` writes L8 when every pixel's chroma ≤ `GREY_CHROMA_MAX` (8), RGB otherwise. **`overview()` uses the same `encode()`**, so quantising there would also hit the overview.
+  - typst-pdf re-deflates raw samples at 8 bits per component (`typst-pdf-0.15.1/src/image.rs`).
+  - So a 4-bit PNG gains nothing in the PDF: **16 levels in an L8 buffer** gives the full saving. The `image` crate can't write 4-bit anyway.
+  - Typst holds an L8 crop at 1 B/px, against 3 B/px for RGB.
+- **Photos** (`annotate.rs`): `REPORT_PHOTO_PX = 800` and `REPORT_JPEG_QUALITY = 80` are already constants. `report_photo` embeds a photo that is small enough and has no shapes byte for byte.
+  - The stroke is a fraction of the long side, so at 640 px the shapes print just as thick (4.8 px ≈ 0.6 mm at 80 mm).
+- **Windows today:** the plugin's `desktop.rs` `view_pdf` returns `Unsupported`, which reaches the user as `internal`. Neither `tauri-plugin-opener` nor the `open` crate is in `Cargo.lock`. `tauri-plugin-dialog` 2.7.3 is there (rfd), with a Rust API (`blocking_save_file`).
+- **The lifecycle gap:**
+  - The single-flight slot (`commands/report.rs`) lives as long as the Rust run.
+  - The card's "Generating…" lives only in `jobs.ts` module state.
+  - If the page reloads while the process lives, the card shows the old line with Generate enabled. Generate then answers `report_busy`, and the run's result is dropped: its callback id is gone (tauri `scripts/core.js`).
+  - Ways to get there: Back on Projects finishes the activity while the process lives (D-016), or an activity recreation.
+  - Nothing in the app, wry 0.55.1 or Tauri handles `onRenderProcessGone`, so a dead renderer takes the whole app down.
+  - Leftover `.part` files and extra PDFs of a killed run stay until the project's next successful generation, because the sweep skips live projects.
+  - The sweep runs in `setup` before `AppState` is managed (`lib.rs`), so no run can be in progress while it runs.
+- **Version:** `0.0.1` appears in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` (+ `Cargo.lock`) and `package.json`. versionName reaches the APK through the generated `tauri.properties`. CI derives the APK name from `tauri.conf.json`.
+
+## 1. Windows: Open and "Save a copy…" (same card, no Share)
+- **Open** = the default PDF app, through the plugin's `desktop.rs` `view_pdf` with the **`open` crate** (`open::that_detached`, `ShellExecuteW` on Windows). It is a desktop-only dependency of the plugin, so the APK doesn't change.
+  - `open_report` stays the same on every platform. `tauri-plugin-opener` would be the same crate plus JS bindings, permissions and an Android library; it is not used.
+  - Errors: Windows "no association" (`ERROR_NO_ASSOCIATION`, 1155) → a desktop `Error::NoApp`, which `rejected_code()` maps to `no_app` and then to `no_pdf_app`. Any other error → `internal` with the OS message.
+  - It works on the Mac dev build too (Preview), which helps the local check.
+- **The copy Open hands over gets a folder per report:** `<app cache>/reports/<project id>/<stamp>/<readable name>`, where `<stamp>` comes from `meta.file`.
+  - If that copy already exists as a regular file with `meta.bytes`, it is reused without copying.
+  - This matters on Windows: Acrobat locks an open PDF, so with 6a's single `<pid>/<name>` a second Open would fail its rename and show "File system error". A new report gets a new folder, so a locked old copy never blocks it.
+  - On Android Share uses the same layout, and a repeated tap no longer copies 18 MB.
+  - The purge goes one level deeper: files older than 24 h, then empty folders. 6a's flat `<pid>/<name>` copies are purged by age.
+  - Delete still removes `<pid>/` whole. The Kotlin check is a canonical-path `startsWith(cacheDir/reports/)` (`CameraCapturePlugin.kt`), so nested folders pass and **Kotlin doesn't change**. FileProvider's `cache-path reports/` covers subfolders.
+- **Save a copy…** → new command `save_report_copy(project_id, title) -> Option<String>` (the saved file name; `None` when the dialog is cancelled). **The WebView still never passes a path.**
+  - Rust opens the dialog with `app.dialog().file().set_parent(window).set_title(title).set_file_name(meta.name).add_filter("PDF", ["pdf"]).set_directory(Documents).blocking_save_file()`, inside `spawn_blocking`.
+  - The dialog asks before overwriting. If the chosen name lacks `.pdf`, it is added; checked first against what rfd's Windows dialog does itself.
+  - Core `reports::save_copy(data_dir, pid, dest)`: `latest()`, copy to `<dest>.part`, `sync_all`, rename over `dest`, remove the part on error.
+  - An I/O error → new code **`save_failed`**: "Could not save the copy. If a file with that name is open in another app, close it and try again." PT: "Não foi possível guardar a cópia. Se um ficheiro com esse nome estiver aberto noutra aplicação, feche-o e tente de novo."
+  - On Android the dialog returns a URI rather than a path, which is refused; the card never shows the button there.
+- **Card:**
+  - Android: Open + Share (unchanged).
+  - Desktop: **Open** + **"Save a copy…"** ("Guardar uma cópia…"), both disabled while generating or handing over.
+  - After a save, a muted line "Saved: <file name>" ("Guardado: …"), cleared by the next Generate.
+- **i18n:** `report.save_copy`, `report.save_title`, `report.saved`, `error.save_failed`, plus ErrorBanner `save_failed`.
+
+### Windows in CI (no Windows machine before the preview)
+- **`ci.yml` windows job:** the "Report tests" step becomes `cargo test -p checkflat-core -p checkflat-report`.
+  - This is the core's first Windows run. A test that is genuinely Unix-only (symlinks through `std::os::unix`, permission bits) gets `#[cfg(unix)]`, and D-029 lists it.
+  - Anything else that fails is a real Windows defect and gets fixed.
+- **Lock tests** in core `reports` (and `tests/` where they fit):
+  - **Simulating a held file.** std's `File::open` on Windows shares read, write and delete, so a plain handle locks nothing there. The tests hold the file with `OpenOptionsExt::share_mode(FILE_SHARE_READ)` under `#[cfg(windows)]`, which blocks delete and rename the way Acrobat does. On Unix they hold a plain handle, where an open file never blocks a rename.
+  - **`save_copy` over an existing file** (all platforms): replaced, with no `.part` left. *Windows:* the destination held open → `Err`, the destination unchanged, no `.part` left.
+  - **`share_copy` (= Open) with an earlier copy still held open:**
+    - the same report → the held copy is reused (`Ok`, same path, not rewritten)
+    - a new report → its own folder, `Ok`
+    - a held copy past 24 h → the purge logs a warning and doesn't fail; after release the next purge removes it
+  - **Regenerate + prune while the stored report or an older share copy is held open:**
+    - `write_report` succeeds and `latest()` names the new PDF
+    - the held old PDF survives the prune (warning)
+    - after release, the next `write_report` prunes it
+    - a held share copy has no effect on generation
+- **D-029 records what only CI covers on Windows:** lock and rename semantics, and the core/report tests. It also records what nothing covers before the preview: `ShellExecuteW` open, the rfd save dialog, WebView2 mouse/keyboard, the installer and SmartScreen.
+
+## 2. Smaller report images (constants, measured current vs smaller)
+- **`snapshot.rs`:**
+  - **Crops are always L8** (`imageops::grayscale`), quantised to `CROP_GREY_LEVELS: u8 = 16`: `v → round(v·15/255)·17`, so 255 stays 255 and near-white rounds to white.
+  - The overview keeps its encoding (the chroma rule, 256 levels); it is one per plan.
+  - `GREY_CHROMA_MAX`/`is_grey` stay for the overview only. `Snapshot.grey` is documented as such.
+- **`annotate.rs`:** `REPORT_PHOTO_PX = 640`, `REPORT_JPEG_QUALITY = 75`. A stored photo ≤ 640 px without shapes is still embedded as stored.
+- **Tests:**
+  - `tests/snapshot.rs`: the crop asserts take the quantised grey. A coloured fixture crop now expects L8 luma. The overview asserts stay exact.
+  - `annotate.rs`: the 800×600 pixel probes are rewritten as fractions of the output size (stroke ≈ 4.8 px at 640).
+  - `tests/report.rs`: 640×480.
+  - New: a crop uses at most 16 grey values; the overview keeps colour.
+- **The decision is Martín's, from the print.** The values are constants. If B's print isn't acceptable, he names what to relax (e.g. 32 levels, or 800 px at q75), and that variant is measured the same way.
+
+### P30 measurement — "Perf A1 4a" (50 × 3, annotated, client's A1 plan), plan viewed first
+**Builds.** Both are `VITE_SPIKES=1 pnpm tauri android build --apk --target aarch64 --features dev-seed -c '{"bundle":{"android":{"versionCode":N}}}'`, universal APK, CI key, `adb install -r`, data kept. N = the installed versionCode, read first with `dumpsys package com.checkflat.app | grep versionCode` (67 or later after 6a).
+- **A "current"** = the branch right after the plan commit (= `main` code, 800 px / q80, chroma-rule crops).
+- **B "smaller"** = A + the image commit only, so the comparison isolates the images.
+
+**Samplers.**
+- `spikes/pss.sh -s <serial> 1.5`: app + renderer, ≈ 2 s in practice.
+- `spikes/pss-app-fast.sh`, an on-device loop of `dumpsys meminfo <pid>` for the app process at ≈ 8 samples/s, to catch the 1–2 s spike that 1.5 s sampling misses (D-027). This is 4b's ad-hoc loop, now committed.
+
+**Runs:** A, B, A, B (alternating, so drift doesn't favour one), each driven by adb with the same script, as 4b was (720×1560 tap space):
+1. `adb install -r <A or B>`, `am force-stop`, `am start -n com.checkflat.app/.MainActivity`, wait 5 s.
+2. Tap "Perf A1 4a" → open the A1 plan → wait for it → `KEYCODE_PLUS` ×3 (≈ 3.4×) → 4 swipes → Back to the project screen.
+3. Language PT. Start both samplers, wait 5 s, tap Generate.
+4. Poll `Documents/` every 1 s for the new PDF (the dev-seed copy). When it appears, wait 10 s, then stop the samplers.
+5. Pull the PDF and `dev.log` (the timing line: total, snapshots, photos, compile, pdf).
+
+Each run takes ≈ 2 min. USB drops every 15–17 min, so each window holds two runs, with `adb wait-for-device` in between. The session starts only on Martín's "go"; he only needs the phone on USB, unlocked, with the screen kept on.
+
+**Recorded per run:**
+- total time and the four stages
+- peak total PSS (pss.sh), with app and renderer
+- the fast app peak + the renderer at that moment
+- pages and bytes
+- per image type from `pdfimages -list`: crops (count, encoding, bytes) and photos (size, bytes)
+
+**Pass criteria for B:**
+- **peak total PSS ≤ 600 MB in both runs**, by either sampler (≥ 50 MB under the 650 MB limit)
+- time ≤ 60 s (expected ≈ 20 s)
+- PDF ≤ 15 MB (expected ≈ 10–11 MB, from D-024's ratios)
+
+A is the reference (expected ≈ 640 MB, 18.4 MB, ≈ 21 s). **If B misses the memory criterion, work stops and Martín sees the numbers before any fallback** (chunked compile).
+
+**Samples for printing** (on Martín's Desktop; both from the P30 runs, with the same layout and page numbers, checked with `pdftotext`):
+- `Checkflat 6b sample A - current (800px q80, colour crops).pdf`
+- `Checkflat 6b sample B - smaller (640px q75, 16 grey levels).pdf`
+
+They come with 3–4 page numbers to print from each:
+- a crop that had colour (trees, street fill)
+- dense line work with a pin near an edge
+- annotated landscape photos
+- a portrait photo
+
+Martín sees the numbers before anything is committed.
+
+## 3. App switch during generation
+**What must hold** (written into D-029):
+- **H1. No half-written report.** After a kill at any moment, the card's line and Open/Share/Save name a complete PDF: the previous one, or the new one (`latest()` checks the size). **New:** the startup sweep also removes live projects' `<pid>-*.pdf.part` and `<pid>.json.part`, plus PDFs their metadata doesn't name. This is safe because the sweep runs before any command is served; tests in `tests/sweep.rs`.
+- **H2. The card recovers; nothing gets stuck on "Generating".**
+  - (a) The process survived: on return the card shows "Generating…" until the run ends, then the new line.
+  - (b) The process was killed: after the relaunch, the previous line (or "no report yet") with Generate enabled.
+  - (c) The page reloaded while the process kept running: "Generating…" with the run's language, then the new line.
+- **H3. Generate works again:** at once after a kill, and as soon as the run ends otherwise. The card never offers a Generate that answers `report_busy` for its own project.
+
+**Expected from the code: (c) fails today**, through Back → Back exit → relaunch, or an activity recreation. **The simple fix is built only after the emulator confirms it:**
+- The slot keeps `{project id, lang}`, and a new command `report_running() -> Option<{projectId, lang}>`.
+- `jobs.ts` gets a pure `followBackend(projectId, {running, sleep}, signal)`: it polls every 1 s while this project's run is going, and stops when it ends or the card unmounts.
+- The card asks it on mount when no JS job exists, then calls `latestReport`.
+- Tests: follows to the end, stops on abort, ignores another project's run.
+
+**Tests:**
+- **Emulator** (`Phone_API35`, Android 15, debug build; it covers the cached-app freezer and gives `run-as` for the files):
+  - **E1:** Generate → Home → 30 s in Settings → return. Was the process frozen (`dumpsys activity processes`)? Did the run advance? Card state.
+  - **E2:** Generate → Back → Back (activity finished, process alive) → relaunch within 10 s → card state. This is the (c) case, run before and after the fix.
+  - **E3:** Generate → Home → `am kill com.checkflat.app` mid-run → relaunch. Previous line; Open shows all its pages; Generate works; `run-as ls reports/` shows no `.part` and only the named PDF + JSON.
+  - **E4:** `settings put global always_finish_activities 1` ("Don't keep activities") → Generate → Home → return. Same check as E2; reset to 0 afterwards.
+- **P30** (the CI build of the PR head with any fix, "Perf A1 4a"; driven by adb, with `pidof` before and after and `logcat -b events` for `am_kill` / `am_proc_died`):
+  - **P1:** Generate (PT) → open another app (Chrome) for 30 s → back through recents. Did the process survive? Card state; the new line; Open.
+  - **P2:** **Martín sets** Developer options → Background process limit → "No background processes". Then Generate → another app 30 s → return. Expected: the process was killed; previous line, no "Generating", Generate completes, Open shows the new report. **He resets it to "Standard limit"** afterwards.
+  - **P3:** Generate → Back → Back (exit) → relaunch from the launcher → "Generating…", then the line.
+
+**Pass:** H1–H3 in every case. A kill costs the run but never data. If H1–H3 cannot hold with this path, **a foreground-service proposal goes to Martín; it is not built unasked.** If P1 shows EMUI killing the app in normal use, D-029 records it, with what it means for HyperOS: the user regenerates in the foreground (≈ 20 s on the P30).
+
+**Added during 6b (Martín, after the P30 check, choice b):** Back on the Projects screen finishes the activity, and the process ends a few seconds later on Android 10 and 15, cancelling a run (P3, E2). While a run is in progress, Back at the root now sends the app to the background, as Home does (the plugin's `moveTaskToBack`). With no run it closes the app as before (D-016). Rechecked on the emulator and on the P30 (CI build 77). P2 also needed a second app: the limit exempts the previous app (D-029).
+
+## 4. Version 0.1.0 and the build number on both platforms
+- `0.1.0` in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` (+ `Cargo.lock`) and `package.json`.
+- **Build number on Windows:** the windows job's "Build NSIS installer" step gets `env: CHECKFLAT_BUILD: ${{ github.run_number }}`.
+  - The plugin's desktop `app_version` returns `version_code: option_env!("CHECKFLAT_BUILD").and_then(|s| s.parse().ok())`. rustc tracks `option_env!`, so cargo rebuilds when the value changes.
+  - Local builds have no value and show the version only.
+  - Android is unchanged: PackageManager's versionCode is the same CI run number (D-021).
+- The About line (no change to the card):
+  - Android and CI Windows: "Versão 0.1.0 (build N)"
+  - local builds: "Versão 0.1.0"
+  - "· debug" as before
+- CI's APK name becomes `checkflat-0.1.0-N-arm64.apk`; NSIS gives `Checkflat_0.1.0_x64-setup.exe`.
+
+## 5. Windows checklists (run by the friend on his laptop during the preview, after merge)
+### 5a. Technical reference (in D-029; results "pending preview")
+Install the installer of the merged build. SmartScreen: More info → Run anyway (the installer is unsigned). App data is in `%APPDATA%\com.checkflat.app`, share copies in `%LOCALAPPDATA%\com.checkflat.app\reports\`.
+1. **About:** the Projects screen shows "Version 0.1.0 (build N)", N = the CI run.
+2. **Plan from file:** new project → import a PDF plan (A1 if possible). Tiles are made, the plan opens, and it pans and zooms with the mouse wheel and drag.
+3. **Photo from file, save, restart (the D-022 test):**
+   - "+" → click the plan → sheet → Gallery: the file picker shows images only. Pick a landscape JPEG and a portrait one, plus a PNG; all appear upright.
+   - Description → Save; the pin shows.
+   - Close the app (window ✕), start it again: the pin, the photos and the description are there, and so is the list row with its thumbnail.
+4. **Annotation by mouse:**
+   - Open a photo's editor: ellipse (drag), arrow (tail → head), freehand. The hint reads "Draw with the mouse. Click a shape to select it."
+   - A click on a shape selects it (halo), Delete removes it, Undo, Done.
+   - Save → reopen: the shapes are where they were drawn.
+   - Escape in the editor closes the editor only; the sheet stays.
+5. **Keyboard with the sheet and the editor open:**
+   - Sheet open: Tab and Shift+Tab cycle inside the sheet only; the top bar, the plan, the pin bar's Cancel and the side list are never reached.
+   - Editor open: Tab and Shift+Tab stay in the editor.
+   - Escape order: editor first, then the sheet.
+   - The 1e sequence: open a create sheet, Shift+Tab a dozen times, then Escape; Move on a pin afterwards shows the move bar, not a new-observation sheet.
+6. **Mouse path, briefly:** move mode (select → Move → drag → Confirm; Cancel restores); the observation list → a row → the plan on its pin; Back to the list.
+7. **Report, Generate:** EN, then PT. The bar shows and the controls are disabled; then the line with date, language, pages and size. **No Share button.**
+8. **Open:** the default PDF app (Edge, Acrobat, …) opens "<project> - <date> - PT.pdf", all pages and photos right. With the viewer still open, Open again → it opens again with no error. Generate EN while the old one is still open → works; Open → the EN file.
+9. **Save a copy…:**
+   - The dialog proposes "<project> - <date> - EN.pdf" in Documents. Save to the Desktop → "Saved: …"; the file opens.
+   - Again to the same name → the dialog asks to replace → Yes → replaced.
+   - Cancel the dialog → nothing happens, no message.
+   - If Acrobat is installed: with that Desktop file open in Acrobat, save over it → "Could not save the copy… close it and try again".
+10. **Restart:** the latest line is still there, and Open works.
+11. **Delete a test project:** its folder under `%LOCALAPPDATA%\com.checkflat.app\reports\` is gone.
+
+**Pass:** 1–11 as described (9's Acrobat case only if Acrobat is there). The results are added to D-029 in a later docs-only commit, from the tester's report.
+
+### 5b. Short PT guide for the tester
+Plain text for his guide (no Tab sequences, no AppData folders, no Acrobat-lock case). It goes to Martín as plain text when the PR is open.
+
+### 5c. The annotation hint matches the input
+- `AnnotationEditor.svelte` shows `annotate.hint` ("Draw with one finger. Tap a shape to select it.") in the hint line and on the stage's `aria-label`.
+- With the card's platform check (`isAndroid()` from `platform.ts`), desktop shows a new **`annotate.hint_mouse`**: "Draw with the mouse. Click a shape to select it." / "Desenhe com o rato. Clique numa forma para a selecionar.". Android is unchanged.
+- The `annotate.limit` hint is platform-neutral and stays.
+- Key parity is guarded by `en_and_pt_have_identical_keys`.
+
+## 6. Docs
+- This section and the header comment: the **first commit**.
+- **D-029:**
+  - context and options: `open` vs the opener plugin; Rust-side dialog vs a JS path; folder per report vs reuse by name; 4-bit PNG vs L8 at 16 levels
+  - outcome, with the P30 A/B table and Martín's print choice
+  - H1–H3 with the E/P results
+  - Windows: what only CI covers and what nothing covers before the preview; the technical checklist with its results **"pending preview"**
+  - open items
+- **CHANGELOG** "Sprint 6b".
+- **`checkflatPLAN.md`:**
+  - §3 rows: snapshots (16-level grey crops), Images/Report (640 px / q75), hand-off (Windows: Open with the default app, Save a copy…)
+  - §4 Sprint 6b ✅ and v0.1
+  - the pre-v0.1 Windows test line: now run by the friend during the preview, with CI covering file locking
+
+## 7. Added during 6b: photos two per row (Martín, 2026-10-26)
+After choosing the smaller images (print choice B), Martín decided the report's photos go **two per row** instead of one below the other, for a more compact report; this replaces the single column of the 2026-10-13 answers (D-025). A 2-column grid on the plan row's columns; each photo keeps its maximum of 80 mm wide and 70 mm tall with its caption under it; three photos are a row of two and a row of one; a row is never split across pages. Done in `assets/report.typ`; `tests/photo_layout.rs` pins it from the PDF's content stream. Images are unchanged, so there is no P30 re-measure; the Mac harness gives the page counts, time and size (D-029).
+
+## Steps (commit per step)
+1. `git checkout -b sprint-6b fc362f1`, then this plan commit. **Build A** (dev-seed) and keep it in the scratchpad.
+2. **Images:** constants, crops, tests; `spikes/pss-app-fast.sh`. A Mac release-harness run of `measure_50_observations` on the fixture, before and after, as a sanity check. **Push and open a draft PR** (CI runs on PRs only).
+3. **Build B** → P30 A/B session on Martín's "go" → numbers and Desktop samples to him → he prints and chooses. The rest continues meanwhile; a different choice is one later commit plus a re-measure.
+4. **Lifecycle:** E1–E4 on a debug build first. Then the sweep step (H1), `report_running` + `followBackend` + the card (H2c), with tests; then E2/E3/E4 again.
+5. **Windows:**
+   - core `share_copy` folder per report + reuse + purge, and `save_copy`
+   - the lock tests (§1)
+   - `ci.yml`: core + report tests on the windows job
+   - plugin desktop `view_pdf` (`open`) + `Error::NoApp`
+   - `save_report_copy` command + registration
+   - `api.ts`, card, i18n, ErrorBanner
+   - the annotation hint per platform (§5c)
+   - **Mac dev check** (also the mouse hint in the editor): Open (Preview) and Save a copy (NSSavePanel) on a cover-only report, since the Mac can't import plans
+   - the `cfg(windows)` tests run first in CI, and CI is iterated until they pass
+6. **Version 0.1.0 + `CHECKFLAT_BUILD`** in the windows job.
+7. CI green, then the P30 session on the CI build:
+   - P1–P3
+   - quick regression by touch or adb: About line 0.1.0, Open, Share once (new copy path), how the smaller report looks
+8. Docs: D-029 (Windows results "pending preview"), CHANGELOG, plan §3/§4. PR ready → **stop** (the super review is Martín's to set up). The PT tester guide goes to him as plain text.
+9. *After the merge, not blocking:* the friend's Windows run during the preview → his results go into D-029 in a docs-only commit.
+
+## Files touched
+- **Report crate:** `crates/checkflat-report/src/{snapshot.rs, annotate.rs}`, `assets/report.typ` (photos two per row), `tests/{snapshot.rs, report.rs, photo_layout.rs (new)}`
+- **Core:** `crates/checkflat-core/src/reports.rs` (share layout, purge, `save_copy`, live-leftover sweep), `tests/{sweep.rs, …}`
+- **Tauri:** `src-tauri/src/commands/report.rs` (slot `{pid, lang}`, `report_running`, `save_report_copy`), `src-tauri/src/lib.rs` (handlers), `src-tauri/Cargo.toml`, `tauri.conf.json`
+- **Plugin:** `src-tauri/plugins/camera-capture/{Cargo.toml (desktop `open`), src/desktop.rs (`view_pdf`, `app_version` build), src/error.rs, README.md}`
+- **CI:** `.github/workflows/ci.yml` (windows job: core + report tests, `CHECKFLAT_BUILD`)
+- **Frontend:** `src/lib/report/{ReportCard.svelte, jobs.ts, jobs.test.ts}`, `src/lib/annotate/AnnotationEditor.svelte`, `src/lib/api.ts`, `src/lib/components/ErrorBanner.svelte`, `i18n/{en,pt}.json`, `package.json`
+- **Tools:** `spikes/pss-app-fast.sh` (new)
+- **Docs:** `docs/sprint-6-plan.md`, `docs/decisions.md` (D-029), `docs/checkflatPLAN.md`, `CHANGELOG.md`
+
+## Verification
+- `pnpm check && pnpm test`; `cargo test --workspace --all-features`; `cargo clippy --workspace --all-features --all-targets -- -D warnings`.
+- CI green on all three:
+  - checks
+  - android-release: the dev-seed and FileProvider guards, the APK size line, and an APK name carrying 0.1.0
+  - windows: the core + report tests including the `cfg(windows)` lock tests, and the installer built with `CHECKFLAT_BUILD`
+- The P30 A/B session, E1–E4 and P1–P3, as above. Results go into D-029 only after Martín has seen the numbers and given his words. The Windows checklist runs after the merge (pending preview).

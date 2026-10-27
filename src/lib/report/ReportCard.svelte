@@ -1,15 +1,16 @@
 <script lang="ts">
   // The report action on the project screen (Sprint 6a, D-028): language chosen at generation, an
   // indeterminate "Generating report…" with the controls disabled, then the latest report (date,
-  // language, pages, size) with Open and Share (Android; Windows saves it in Sprint 6b). The run
-  // outlives this component (`jobs.ts`), so leaving the screen and coming back shows it again.
+  // language, pages, size) with Open and Share on Android, Open and "Save a copy…" on desktop
+  // (Sprint 6b, D-029). The run outlives this component (`jobs.ts`), so leaving the screen and
+  // coming back shows it again; after a page reload the backend's run is followed instead.
   import { onMount } from "svelte";
   import { api, asAppError, deviceTimeZone, utcOffsetMin, type AppError, type ReportInfo, type ReportResult } from "../api";
   import { lang, t, type Lang } from "../i18n.svelte";
   import { isAndroid } from "../platform";
   import { devlog, SPIKES } from "../devlog";
   import { formatDateTime, formatSize } from "./format";
-  import { runningJob, startJob } from "./jobs";
+  import { followBackend, runningJob, startJob } from "./jobs";
 
   let { projectId, onerror }: { projectId: string; onerror: (e: AppError) => void } = $props();
 
@@ -20,9 +21,14 @@
   let skippedPhotos = $state(0);
   /** Spike builds only (the D-026 measurement builds read the timings off the screen). */
   let timings = $state<string | null>(null);
-  /** Open/Share in flight: the copy for the other app is being made. */
+  /** Open/Share/Save in flight: the copy for the other app (or the save dialog) is open. */
   let handing = $state(false);
-  let android = $state(false);
+  /** Null until known: the buttons differ (Share on Android, Save a copy on desktop). */
+  let android = $state<boolean | null>(null);
+  /** The file name of the last "Save a copy…", until the next Generate. */
+  let savedName = $state<string | null>(null);
+  /** Aborted when the card goes: stops following a backend run. */
+  const left = new AbortController();
 
   function follow(job: Promise<ReportResult>) {
     generating = true;
@@ -40,12 +46,31 @@
       .finally(() => (generating = false));
   }
 
+  /** A run this page did not start: the page was reloaded during it (D-029). */
+  function followReloaded() {
+    const backend = { running: api.reportRunning, sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)) };
+    followBackend<Lang>(projectId, backend, left.signal, (l) => {
+      reportLang = l;
+      generating = true;
+    })
+      .then(async (found) => {
+        if (!found || left.signal.aborted) return;
+        // Its result went to the old page; the latest report is where it shows.
+        latest = await api.latestReport(projectId);
+        loaded = true;
+      })
+      .catch((e) => onerror(asAppError(e)))
+      .finally(() => (generating = runningJob(projectId) !== null));
+  }
+
   onMount(() => {
     void isAndroid().then((a) => (android = a));
     const running = runningJob<ReportResult, Lang>(projectId);
     if (running) {
       reportLang = running.info;
       follow(running.job);
+    } else {
+      followReloaded();
     }
     api
       .latestReport(projectId)
@@ -54,20 +79,23 @@
         loaded = true;
       })
       .catch((e) => onerror(asAppError(e)));
+    return () => left.abort();
   });
 
   function generate() {
     skippedPhotos = 0;
     timings = null;
+    savedName = null;
     const l = reportLang;
     follow(startJob(projectId, l, () => api.generateReport(projectId, l, deviceTimeZone(), utcOffsetMin())));
   }
 
-  async function hand(action: "open" | "share") {
+  async function hand(action: "open" | "share" | "save") {
     handing = true;
     try {
       if (action === "open") await api.openReport(projectId);
-      else await api.shareReport(projectId, t("report.share_title"));
+      else if (action === "share") await api.shareReport(projectId, t("report.share_title"));
+      else savedName = (await api.saveReportCopy(projectId, t("report.save_title"))) ?? savedName;
     } catch (e) {
       const err = asAppError(e);
       if (err.code === "no_report") latest = null;
@@ -107,12 +135,17 @@
         size: formatSize(latest.bytes, lang()),
       })}
     </p>
-    {#if android}
+    {#if android !== null}
       <div class="row">
         <button onclick={() => hand("open")} disabled={generating || handing}>{t("report.open")}</button>
-        <button onclick={() => hand("share")} disabled={generating || handing}>{t("report.share")}</button>
+        {#if android}
+          <button onclick={() => hand("share")} disabled={generating || handing}>{t("report.share")}</button>
+        {:else}
+          <button onclick={() => hand("save")} disabled={generating || handing}>{t("report.save_copy")}</button>
+        {/if}
       </div>
     {/if}
+    {#if savedName}<p class="muted saved">{t("report.saved", { name: savedName })}</p>{/if}
   {:else if loaded && !generating}
     <p class="muted">{t("report.none")}</p>
   {/if}
@@ -129,5 +162,6 @@
   progress { width: 100%; height: 6px; }
   .latest { margin: 0.5rem 0; }
   .timings { word-break: break-all; }
+  .saved { overflow-wrap: anywhere; }
   .timings code { font-size: 11px; }
 </style>

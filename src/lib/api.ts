@@ -7,6 +7,8 @@ export interface AppError {
   message: string;
   pages?: number;
   count?: number;
+  /** The offending token of `template_unknown_token`. */
+  detail?: string;
 }
 export interface ProjectSummary {
   id: string;
@@ -182,7 +184,12 @@ export interface ReportResult {
   pdfMs: number;
   totalMs: number;
 }
-/** The installed version: Android's versionName + versionCode (the CI run number); no build on desktop. */
+/** A report run in progress (`report_running`, D-029). */
+export interface RunningReport {
+  projectId: string;
+  lang: "en" | "pt";
+}
+/** The installed version: Android's versionName + versionCode (the CI run number); on desktop the package version and the CI run number when the build had one (D-029). */
 export interface AppVersion {
   version: string;
   build: string | null;
@@ -204,7 +211,7 @@ export const api = {
   deleteProject: (id: string) => invoke<void>("delete_project", { id }),
   updateRefSettings: (id: string, code: string, template: string, scope: Scope) =>
     invoke<Project>("update_ref_settings", { id, code, template, scope }),
-  /** Next ref under unsaved settings (validation errors: invalid_template, fraction_required). */
+  /** Next ref under unsaved settings (errors: code_*, template_*, fraction_required). */
   previewRefSettings: (id: string, code: string, template: string, scope: Scope, fraction: string) =>
     invoke<string>("preview_ref_settings", { id, code, template, scope, fraction }),
   listFractions: (projectId: string) => invoke<Fraction[]>("list_fractions", { projectId }),
@@ -254,11 +261,17 @@ export const api = {
     invoke<ReportResult>("generate_report", { projectId, lang, timeZone, utcOffsetMin }),
   /** The project's latest report; null when there is none (or it was made before Sprint 6a). */
   latestReport: (projectId: string) => invoke<ReportInfo | null>("latest_report", { projectId }),
-  /** Android: opens the latest report in a PDF viewer (`no_pdf_app`, `no_report`). */
+  /** The report run in progress, if any: a page reloaded during a run still sees it (D-029). */
+  reportRunning: () => invoke<RunningReport | null>("report_running"),
+  /** Opens the latest report in a PDF viewer (Android) or the default PDF app (desktop) (`no_pdf_app`, `no_report`). */
   openReport: (projectId: string) => invoke<void>("open_report", { projectId }),
   /** Android: shares the latest report through the share sheet (`no_share_app`, `no_report`). */
   shareReport: (projectId: string, title: string) => invoke<void>("share_report", { projectId, title }),
+  /** Desktop: "Save a copy…" — a save dialog, then a copy of the latest report; the saved file's name, or null when cancelled (`save_failed`, `no_report`). */
+  saveReportCopy: (projectId: string, title: string) => invoke<string | null>("save_report_copy", { projectId, title }),
   appVersion: () => invoke<AppVersion>("app_version"),
+  /** Android: sends the app to the background as Home does (Back on the Projects screen during a report run, D-029). */
+  appToBackground: () => invoke<void>("app_to_background"),
   /** Debug builds only (the command does not exist in release builds, except local `dev-seed` ones): seeds `count` observations on a plan, with shapes on every photo when `annotate`. */
   devSeedObservations: (planId: string, count: number, annotate: boolean) => invoke<number>("dev_seed_observations", { planId, count, annotate }),
 };

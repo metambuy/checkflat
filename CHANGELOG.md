@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.1 super review and fix pass — 2026-10-27 (D-029)
+- **Review:** the five Open Code Review runs of the branch and six area reviews (data safety, report, Android files, Windows files, performance at 50 × 3, first-time tester) of the app as it ships in v0.1. Nothing blocks the preview; the ~35 "later" findings are in the plan's backlog (§4).
+- **Fixed:**
+  - **Back, Escape and Cancel on an observation sheet that holds photos, shapes or text ask first** — "Descartar esta observação? As fotos e o texto não guardados perdem-se." for a new observation, "Descartar as alterações? As alterações não guardadas perdem-se." for an edit ([Descartar] / [Continuar a editar]); an untouched sheet closes at once. A camera photo exists only in the app's cache until Save, so one Back used to lose it.
+  - **Invalid characters in a fraction or project code, and every template error, are explained under the field in EN/PT**, from the rule the core applies (at most 16 characters, no spaces or braces); the core's English text is no longer shown. One code → message table for the banner and the fields.
+  - **Deleting a plan that has observations says "Elimine-as primeiro"** (pins cannot move to another plan).
+  - **Camera and picker failures show their own messages** (no camera app, no photo picker, a source that cannot be opened, HEIC on Android below 9); anything unknown shows "Erro inesperado." and its detail goes to `dev.log`.
+  - **A start that cannot finish shows a message with the error, the data folder and the log file** (English and Portuguese) and writes `startup-error.log`, instead of the app disappearing. A locked database or a file in use says to close the other windows and try again; a corrupt or unreadable database, a failed migration or anything unknown says "Não apague esta pasta. Envie uma captura deste ecrã a quem lhe deu a aplicação."
+  - **Windows: a second launch focuses the running window** (`tauri-plugin-single-instance`, desktop only; the APK is unchanged).
+- **Ultrareview of PR #10 (cloud):** 3 findings. **Fixed:** opening or sharing a report again restarts its share copy's day, so the purge that the next Open/Share runs cannot remove a copy another app was just handed. The other two (one helper for the three part-file writers; the Back-at-root rule after a page reload during a run) are in the plan's backlog for Sprint 7.
+- Tests: Rust 155 (was 144), frontend 147 (was 130).
+
+## Sprint 6b — 2026-10-26 (v0.1.0: Windows Open and Save a copy, smaller report images, app switch during generation; D-029)
+- **Smaller report images (required for memory and size):**
+  - plan crops are always greyscale with 16 grey levels (colour on a plan prints grey; the pin and the overview's box stay in colour)
+  - photos are 640 px at JPEG q75 (`CROP_GREY_LEVELS`, `REPORT_PHOTO_PX`, `REPORT_JPEG_QUALITY`)
+  - On the P30, project "Perf A1 4a" (56 observations, 166 photos, 85 pages): **20.8 → 9.4 MB, peak memory ≈ 720 → ≈ 534 MB, 24 → 21 s.** A new on-device sampler (`spikes/pss-app-fast.sh`) showed the old 1.5 s sampling missed the top of the 2 s spike, so the old images were ≈ 70 MB over the 650 MB limit.
+  - Martín printed both sample PDFs and chose the smaller images ("no visible difference in print"); the client confirms in the preview.
+- **Photos two per row** (Martín's decision, replacing the single column of the client's 2026-10-13 answers, for a more compact report): a 2-column grid on the plan row's columns, each photo still ≤ 80 × 70 mm with its caption under it, three photos a row of two and a row of one, a row never split across pages, the "Images" label with the first row. Mac harness, images unchanged: the emulator's 51-observation project **69 → 52 pages**, with a portrait photo first in each observation 77 → 69, the synthetic 50 × 3 fixture 85 → 68; size +12–21 KB, time and memory the same. `tests/photo_layout.rs` reads the PDF's content stream to pin the columns, the captions and the unsplit rows.
+- **Windows:** the report card has **Open** (the default PDF app) and **"Save a copy…"** ("Guardar uma cópia…"), with "Saved: <name>" after a save.
+  - The save dialog is opened from Rust and proposes the readable name in Documents, so the WebView never passes a path. A file held open by a PDF viewer gives "Could not save the copy… close it and try again".
+  - The annotation editor's hint mentions the mouse on desktop.
+- **Share copies get a folder per report** (`cache/reports/<project>/<stamp>/<name>`) and are reused while they exist. A viewer holding a copy open on Windows no longer blocks Open or a new report, and a repeated Share on Android does not copy the file again.
+- **App switch during generation** (H1–H3: no half-written report; the card never stays on "Generating"; Generate works again):
+  - the startup sweep removes a killed run's part files and unnamed PDFs
+  - a card mounted after its page reloaded during a run follows the backend's run (`report_running`) instead of offering a Generate that answered "already being generated"
+  - **Back on the Projects screen during a run sends the app to the background** (as Home) instead of closing it, which ended the run
+  - Checked on the Android 15 emulator (Home, Back, kill, page reload) and the P30 (another app for 30 s, "No background processes", Back). No foreground service needed.
+- **Version 0.1.0.** The About line shows the build number on Windows too (CI's run number, `CHECKFLAT_BUILD`).
+- **Windows CI** now runs the core tests too, including tests that hold files open the way Acrobat does; its first run found and fixed a Windows-only test defect. The manual Windows test moves to the preview (the friend's laptop); D-029 holds the checklist, results pending.
+- Tests: Rust 144 (was 136), frontend 130 (was 126). APK +21.5 KB (CI run 79, the last change to the app's contents). Mac dev check of Open / Save a copy (Martín): "behaved as expected".
+
 ## Sprint 6a — 2026-10-22 (report Open/Share on Android, app version, one narrow FileProvider; D-028)
 - **Report card** on the project screen (replaces Sprint 5's temporary action): language chosen at generation, an indeterminate "Generating report…" with the controls disabled, then the **latest report** — date, language, pages, size — with **Open** and **Share** on Android ("Abrir" / "Partilhar"). The run outlives the screen: leaving and coming back shows it still running. One report at a time (`report_busy`); a project whose report is being generated cannot be deleted meanwhile.
 - **Readable name for recipients:** `"<project name> - <yyyy-mm-dd> - <EN|PT>.pdf"` (the language added after the P30 check, where the EN and PT reports of one day had the same name), sanitised (`/ \ : * ? " < > |` and control characters dropped, cut at 100 bytes, accents kept), fixed at generation; the cover's date and the name's date come from the same instant.

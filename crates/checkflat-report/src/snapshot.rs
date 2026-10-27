@@ -1,9 +1,11 @@
 //! Plan snapshots stitched from the tile cache (D-014, D-024): a square crop around the pin and
-//! an overview of the whole plan, both PNG — greyscale when the image carries no colour (most
-//! plans are black on white; typst-pdf embeds a Luma8 PNG as DeviceGray at a third of the raw
-//! size), RGB otherwise. The pin and the red box are *not* drawn here — the Typst template places
-//! them as vectors from the fractions this module computes, so the overview image is the same
-//! bytes for every observation of a plan (embedded once).
+//! an overview of the whole plan, both PNG. Crops are always greyscale with [`CROP_GREY_LEVELS`]
+//! levels (D-029). typst-pdf embeds a Luma8 PNG as DeviceGray at a third of the raw size and Typst
+//! holds it at one byte a pixel; the few grey values deflate to a fraction of the bytes. The
+//! overview is greyscale when it carries no colour, RGB otherwise. The pin and the red box are
+//! *not* drawn here — the Typst template places them as vectors from the fractions this module
+//! computes, so they stay red and the overview image is the same bytes for every observation of a
+//! plan (embedded once).
 use std::path::Path;
 
 use checkflat_core::repo::tiles::{TileLevel, TileManifest, TILE};
@@ -18,7 +20,12 @@ use crate::{ReportError, Result};
 pub const CROP_FRACTION: f64 = 0.20;
 /// Longest side of the crop image; prints at 80 mm (~250 dpi). Picks the 4096 level.
 pub const CROP_PX: u32 = 800;
-/// Largest per-pixel chroma (max − min channel) a snapshot may have and still be written as
+/// Grey levels of a crop (D-029): 16 = steps of 17, so black and white stay exact and a near-white
+/// anti-aliasing fringe becomes white. 256 would keep every level. The PDF stores 8 bits per sample
+/// whatever the PNG's bit depth (typst-pdf re-deflates the raw samples), so the saving comes from
+/// the few distinct values, not from a 4-bit PNG.
+pub const CROP_GREY_LEVELS: u16 = 16;
+/// Largest per-pixel chroma (max − min channel) the overview may have and still be written as
 /// greyscale. A black-on-white plan through the lossy WebP tiles measures 1; the faintest
 /// coloured layer is far above (a client plan's overview measured 189).
 pub const GREY_CHROMA_MAX: u8 = 8;
@@ -66,7 +73,8 @@ pub struct Snapshot {
     pub png: Vec<u8>,
     pub width: u32,
     pub height: u32,
-    /// Written as an 8-bit greyscale PNG (every pixel within [`GREY_CHROMA_MAX`]).
+    /// Written as an 8-bit greyscale PNG: always for a crop, for the overview when every pixel is
+    /// within [`GREY_CHROMA_MAX`].
     pub grey: bool,
 }
 
@@ -77,18 +85,32 @@ impl Snapshot {
     }
 }
 
-/// Crop of `win` from `level` (tiles under `tiles_dir/<size>/`), resized to ≤ [`CROP_PX`].
+/// Crop of `win` from `level` (tiles under `tiles_dir/<size>/`): greyscale, resized to ≤
+/// [`CROP_PX`], quantised to [`CROP_GREY_LEVELS`]. Colour on the plan (trees, street fills) prints
+/// as grey.
 pub fn crop(tiles_dir: &Path, level: &TileLevel, win: &Window) -> Result<Snapshot> {
     let px = |f: f64, size: u32| (f * f64::from(size)).round() as u32;
     let x0 = px(win.x, level.width).min(level.width.saturating_sub(1));
     let y0 = px(win.y, level.height).min(level.height.saturating_sub(1));
     let w = px(win.w, level.width).clamp(1, level.width - x0);
     let h = px(win.h, level.height).clamp(1, level.height - y0);
-    let mut img = stitch(tiles_dir, level, x0, y0, w, h)?;
+    // Grey before the resize: a third of the samples to filter.
+    let mut luma = image::imageops::grayscale(&stitch(tiles_dir, level, x0, y0, w, h)?);
     if w.max(h) > CROP_PX {
-        img = image::imageops::resize(&img, scaled(w, w.max(h)), scaled(h, w.max(h)), FilterType::Triangle);
+        luma = image::imageops::resize(&luma, scaled(w, w.max(h)), scaled(h, w.max(h)), FilterType::Triangle);
     }
-    encode(&img)
+    for p in luma.pixels_mut() {
+        p.0[0] = quantise(p.0[0], CROP_GREY_LEVELS);
+    }
+    let png = png(luma.as_raw(), luma.width(), luma.height(), ExtendedColorType::L8)?;
+    Ok(Snapshot { png, width: luma.width(), height: luma.height(), grey: true })
+}
+
+/// `v` rounded to the nearest of `levels` evenly spaced values from 0 to 255 (2 ≤ levels ≤ 256).
+fn quantise(v: u8, levels: u16) -> u8 {
+    let steps = u32::from(levels.clamp(2, 256)) - 1;
+    let level = (u32::from(v) * steps + 127) / 255;
+    ((level * 255 + steps / 2) / steps) as u8
 }
 
 fn scaled(v: u32, long: u32) -> u32 {
@@ -142,19 +164,24 @@ fn is_grey(img: &RgbImage) -> bool {
     })
 }
 
-/// Greyscale PNG (L8) when the image has no colour, RGB PNG otherwise.
+/// The overview's encoding: greyscale PNG (L8) when the image has no colour, RGB PNG otherwise.
 fn encode(img: &RgbImage) -> Result<Snapshot> {
     let grey = is_grey(img);
-    let mut png = Vec::new();
-    let encoder = PngEncoder::new_with_quality(&mut png, CompressionType::Default, PngFilter::Adaptive);
-    let written = if grey {
+    let png = if grey {
         let luma = image::imageops::grayscale(img);
-        encoder.write_image(luma.as_raw(), img.width(), img.height(), ExtendedColorType::L8)
+        png(luma.as_raw(), img.width(), img.height(), ExtendedColorType::L8)?
     } else {
-        encoder.write_image(img.as_raw(), img.width(), img.height(), ExtendedColorType::Rgb8)
+        png(img.as_raw(), img.width(), img.height(), ExtendedColorType::Rgb8)?
     };
-    written.map_err(|e| ReportError::Image(e.to_string()))?;
     Ok(Snapshot { png, width: img.width(), height: img.height(), grey })
+}
+
+fn png(raw: &[u8], w: u32, h: u32, colour: ExtendedColorType) -> Result<Vec<u8>> {
+    let mut png = Vec::new();
+    PngEncoder::new_with_quality(&mut png, CompressionType::Default, PngFilter::Adaptive)
+        .write_image(raw, w, h, colour)
+        .map_err(|e| ReportError::Image(e.to_string()))?;
+    Ok(png)
 }
 
 #[cfg(test)]
@@ -213,6 +240,20 @@ mod tests {
         assert!(!s.grey);
         assert_eq!(colour_type(&s), image::ColorType::Rgb8);
         assert_eq!(image::load_from_memory(&s.png).unwrap().get_pixel(3, 3).0, [120, 129, 120, 255]);
+    }
+
+    #[test]
+    fn quantise_keeps_black_and_white_and_rounds_to_the_nearest_level() {
+        use std::collections::BTreeSet;
+        assert_eq!((quantise(0, 16), quantise(255, 16)), (0, 255));
+        assert_eq!((quantise(8, 16), quantise(9, 16)), (0, 17), "half way between 0 and 17");
+        assert_eq!((quantise(246, 16), quantise(247, 16)), (238, 255), "a near-white fringe becomes white");
+        let sixteen: BTreeSet<u8> = (0..=255u8).map(|v| quantise(v, 16)).collect();
+        assert_eq!(sixteen.len(), 16);
+        assert!(sixteen.iter().all(|v| v % 17 == 0), "{sixteen:?}");
+        assert!((0..=255u8).all(|v| quantise(v, 256) == v), "256 levels keep every value");
+        let thirty_two: BTreeSet<u8> = (0..=255u8).map(|v| quantise(v, 32)).collect();
+        assert_eq!((thirty_two.len(), thirty_two.first(), thirty_two.last()), (32, Some(&0), Some(&255)));
     }
 
     #[test]

@@ -5,6 +5,7 @@ mod commands;
 mod asset_scope;
 mod devlog;
 mod error;
+mod startup;
 mod state;
 
 use serde::Serialize;
@@ -44,6 +45,17 @@ async fn app_version(app: tauri::AppHandle) -> error::AppResult<AppVersionInfo> 
     Ok(AppVersionInfo { version: v.version_name, build: v.version_code.map(|c| c.to_string()) })
 }
 
+/// Back on the Projects screen while a report is being generated (Android, D-029): the app goes to
+/// the background as with Home, instead of closing, which would end the process and the run.
+#[tauri::command]
+async fn app_to_background(app: tauri::AppHandle) -> error::AppResult<()> {
+    use tauri_plugin_camera_capture::CameraCaptureExt;
+    tauri::async_runtime::spawn_blocking(move || app.camera_capture().move_task_to_back())
+        .await
+        .map_err(error::AppError::internal)?
+        .map_err(error::AppError::internal)
+}
+
 /// The command list, plus any extra commands that exist only in some builds (the Dev screen's
 /// seed command is compiled out of release builds without the `dev-seed` feature, so it cannot be
 /// named there).
@@ -52,6 +64,7 @@ macro_rules! handler {
         tauri::generate_handler![
             platform_info,
             app_version,
+            app_to_background,
             devlog::dev_log,
             commands::projects::list_projects,
             commands::projects::get_project,
@@ -93,27 +106,55 @@ macro_rules! handler {
             commands::report::latest_report,
             commands::report::open_report,
             commands::report::share_report,
+            commands::report::save_report_copy,
+            commands::report::report_running,
             $($extra),*
         ]
     };
 }
 
+/// The running window comes to the front (a second launch asked for it).
+#[cfg(desktop)]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Opens the data folder and the database (migrating it), sweeps, and manages the state.
+fn start(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let data_dir = app.path().app_data_dir()?;
+    std::fs::create_dir_all(&data_dir)?;
+    let opened = checkflat_core::db::open(&data_dir.join("checkflat.db"))?;
+    // Startup maintenance (quarantine, never delete; skipped for a fresh database).
+    match checkflat_core::paths::sweep_orphans(&opened.conn, &data_dir, opened.freshly_created) {
+        Ok(report) => log::info!("sweep: {report:?}"),
+        Err(e) => log::warn!("sweep failed: {e}"),
+    }
+    app.manage(AppState::new(opened.conn, data_dir));
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Desktop only, and first: a second launch (a double click while WebView2 is still starting) hands
+    // over to the running window and exits before it opens the database, sweeps the files of a first
+    // instance that may be saving, or starts a second report (D-029, v0.1 review).
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)));
+    let builder = builder
         .plugin(tauri_plugin_camera_capture::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let opened = checkflat_core::db::open(&data_dir.join("checkflat.db"))?;
-            // Startup maintenance (quarantine, never delete; skipped for a fresh database).
-            match checkflat_core::paths::sweep_orphans(&opened.conn, &data_dir, opened.freshly_created) {
-                Ok(report) => log::info!("sweep: {report:?}"),
-                Err(e) => log::warn!("sweep failed: {e}"),
+            let data_dir = app.path().app_data_dir().ok();
+            // A start that cannot finish says why (and where the data is) before the app closes (D-029).
+            if let Err(e) = start(app) {
+                startup::fail(app, data_dir.as_deref(), e.as_ref());
             }
-            app.manage(AppState::new(opened.conn, data_dir));
             Ok(())
         });
     #[cfg(any(debug_assertions, feature = "dev-seed"))]

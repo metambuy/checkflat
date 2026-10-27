@@ -4,6 +4,7 @@
   // together with an explicit Save (the template must validate); fractions save on the spot.
   import { onMount } from "svelte";
   import { api, asAppError, type AppError, type Fraction, type Project, type Scope } from "../api";
+  import { errorText } from "../errors";
   import { t } from "../i18n.svelte";
   import { go } from "../nav.svelte";
   import { livePreview } from "../livePreview";
@@ -21,6 +22,14 @@
   let preview = $state<string | null>(null);
   let previewError = $state<AppError | null>(null);
   let newFraction = $state("");
+  // Problems of the fraction list (add, remove) show under it, not in the banner at the top of the page.
+  let fractionError = $state<AppError | null>(null);
+
+  // A problem with the code or the template shows under that field, in the user's language; what is
+  // left (no preview possible for another reason) shows on the preview line.
+  const codeError = $derived(previewError?.code.startsWith("code_") ? previewError : null);
+  const templateError = $derived(previewError?.code.startsWith("template_") ? previewError : null);
+  const otherError = $derived(previewError && !codeError && !templateError ? previewError : null);
 
   const dirty = $derived(project !== null && (code.trim() !== project.code || template.trim() !== project.refTemplate || scope !== project.seqScope));
   // The preview needs a fraction when numbers run per fraction: the first listed one, else "A".
@@ -75,22 +84,24 @@
     e.preventDefault();
     if (!newFraction.trim()) return;
     error = null;
+    fractionError = null;
     try {
       await api.addFraction(id, newFraction);
       newFraction = "";
       fractions = await api.listFractions(id);
     } catch (err) {
-      error = asAppError(err);
+      fractionError = asAppError(err);
     }
   }
 
   async function deleteFraction(f: Fraction) {
     error = null;
+    fractionError = null;
     try {
       await api.deleteFraction(f.id);
       fractions = await api.listFractions(id);
     } catch (err) {
-      error = asAppError(err);
+      fractionError = asAppError(err);
     }
   }
 </script>
@@ -104,12 +115,14 @@
       <h2>{t("settings.numbering")}</h2>
       <label>
         {t("settings.code")}
-        <input bind:value={code} placeholder={t("settings.code_placeholder")} autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" />
+        <input bind:value={code} placeholder={t("settings.code_placeholder")} autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" aria-invalid={codeError !== null} />
+        {#if codeError}<span class="field-error" role="alert">{errorText(codeError, t)}</span>{/if}
       </label>
       <label>
         {t("settings.template")}
-        <input bind:value={template} autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" required />
+        <input bind:value={template} autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" required aria-invalid={templateError !== null} />
         <span class="muted">{t("settings.template_help")}</span>
+        {#if templateError}<span class="field-error" role="alert">{errorText(templateError, t)}</span>{/if}
       </label>
       <fieldset>
         <legend>{t("settings.scope")}</legend>
@@ -119,10 +132,10 @@
           <p class="muted">{t("settings.scope_locked", { count: project.observationCount })}</p>
         {/if}
       </fieldset>
-      <p class="preview" class:bad={previewError !== null} aria-live="polite">
-        {#if previewError}
-          {previewError.code === "invalid_template" ? previewError.message.replace(/^invalid ref template: /, "") : previewError.message}
-        {:else if preview !== null}
+      <p class="preview" class:bad={otherError !== null} aria-live="polite">
+        {#if otherError}
+          {errorText(otherError, t)}
+        {:else if preview !== null && previewError === null}
           {t("settings.next_ref", { ref: preview })}
         {/if}
       </p>
@@ -147,9 +160,10 @@
         </ul>
       {/if}
       <form class="row" onsubmit={addFraction}>
-        <input class="grow" bind:value={newFraction} placeholder={t("sheet.fraction_placeholder")} autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" />
+        <input class="grow" bind:value={newFraction} oninput={() => (fractionError = null)} placeholder={t("sheet.fraction_placeholder")} autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" aria-invalid={fractionError !== null} />
         <button type="submit" disabled={!newFraction.trim()}>{t("common.add")}</button>
       </form>
+      {#if fractionError}<p class="field-error" role="alert">{errorText(fractionError, t)}</p>{/if}
     </div>
   {:else}
     <p class="muted">{t("common.loading")}</p>
@@ -163,6 +177,8 @@
   .radio input { min-height: 0; width: 20px; height: 20px; }
   .preview { margin: 0.5rem 0 0; font-weight: 600; color: #143c78; min-height: 1.4em; }
   .preview.bad { color: #b3261e; font-weight: 400; }
+  .field-error { color: #b3261e; font-size: 0.9rem; font-weight: 400; }
+  p.field-error { margin: 0.4rem 0 0; }
   .status { align-self: center; font-size: 12px; color: #2e7d32; }
   .chips { list-style: none; padding: 0; margin: 0 0 0.5rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chip { display: inline-flex; align-items: center; gap: 0.2rem; background: #e3ebf7; color: #143c78; border: 1px solid #c5d3ea; border-radius: 18px; padding: 0 0.2rem 0 0.8rem; font-weight: 600; }
