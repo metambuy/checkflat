@@ -1,40 +1,13 @@
 <script lang="ts">
   import type { AppError } from "../api";
+  import { errorText } from "../errors";
   import { t } from "../i18n.svelte";
   let { error, ondismiss }: { error: AppError | null; ondismiss: () => void } = $props();
-
-  function text(e: AppError): string {
-    switch (e.code) {
-      case "multi_page": return t("import.multi_page", { pages: e.pages ?? "?" });
-      case "unreadable_pdf": return t("import.unreadable_pdf");
-      case "source_unreadable": return t("import.source_unreadable");
-      case "plan_has_observations": return t("plan.delete_blocked", { count: e.count ?? "?" });
-      case "invalid_template": return t("error.invalid_template", { message: e.message.replace(/^invalid ref template: /, "") });
-      case "scope_locked": return t("error.scope_locked");
-      case "fraction_in_use": return t("error.fraction_in_use");
-      case "fraction_required": return t("error.fraction_required");
-      case "photo_required": return t("error.photo_required");
-      case "photo_limit": return t("error.photo_limit", { count: e.count ?? "?" });
-      case "unreadable_image": return t("error.unreadable_image");
-      case "image_unsupported": return t("error.image_unsupported");
-      case "report": return t("error.report", { message: e.message });
-      case "report_busy": return t("error.report_busy");
-      case "no_report": return t("error.no_report");
-      case "no_pdf_app": return t("error.no_pdf_app");
-      case "no_share_app": return t("error.no_share_app");
-      case "save_failed": return t("error.save_failed");
-      case "validation": return t("error.validation");
-      case "not_found": return t("error.not_found");
-      case "db": return t("error.db");
-      case "io": return t("error.io");
-      default: return `${t("error.internal")} (${e.message})`;
-    }
-  }
 </script>
 
 {#if error}
   <div class="banner" role="alert">
-    <span>{text(error)}</span>
+    <span>{errorText(error, t)}</span>
     <button onclick={ondismiss} aria-label="dismiss">×</button>
   </div>
 {/if}

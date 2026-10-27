@@ -7,6 +7,8 @@ export interface AppError {
   message: string;
   pages?: number;
   count?: number;
+  /** The offending token of `template_unknown_token`. */
+  detail?: string;
 }
 export interface ProjectSummary {
   id: string;
@@ -209,7 +211,7 @@ export const api = {
   deleteProject: (id: string) => invoke<void>("delete_project", { id }),
   updateRefSettings: (id: string, code: string, template: string, scope: Scope) =>
     invoke<Project>("update_ref_settings", { id, code, template, scope }),
-  /** Next ref under unsaved settings (validation errors: invalid_template, fraction_required). */
+  /** Next ref under unsaved settings (errors: code_*, template_*, fraction_required). */
   previewRefSettings: (id: string, code: string, template: string, scope: Scope, fraction: string) =>
     invoke<string>("preview_ref_settings", { id, code, template, scope, fraction }),
   listFractions: (projectId: string) => invoke<Fraction[]>("list_fractions", { projectId }),

@@ -9,6 +9,7 @@
   import { onDestroy, onMount, untrack } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { api, asAppError, type AppError, type Fraction, type Observation } from "../api";
+  import { errorText } from "../errors";
   import { t } from "../i18n.svelte";
   import { livePreview } from "../livePreview";
   import { capturePath, pickPath, stagePath } from "../photoSource";
@@ -198,7 +199,7 @@
       </div>
       <p class="preview" class:bad={previewError !== null} aria-live="polite">
         {#if previewError}
-          {previewError.code === "fraction_required" ? t("error.fraction_required") : previewError.message}
+          {errorText(previewError, t)}
         {:else if preview !== null}
           {t("sheet.will_be", { ref: preview })}
         {/if}
