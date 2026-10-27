@@ -3,13 +3,13 @@
 ## v0.1 super review and fix pass — 2026-10-27 (D-029)
 - **Review:** the five Open Code Review runs of the branch and six area reviews (data safety, report, Android files, Windows files, performance at 50 × 3, first-time tester) of the app as it ships in v0.1. Nothing blocks the preview; the ~35 "later" findings are in the plan's backlog (§4).
 - **Fixed:**
-  - **Back, Escape and Cancel on an observation sheet that holds photos, shapes or text ask "Descartar esta observação? As fotos e o texto não guardados perdem-se."** ([Descartar] / [Continuar a editar]); an untouched sheet closes at once. A camera photo exists only in the app's cache until Save, so one Back used to lose it.
+  - **Back, Escape and Cancel on an observation sheet that holds photos, shapes or text ask first** — "Descartar esta observação? As fotos e o texto não guardados perdem-se." for a new observation, "Descartar as alterações? As alterações não guardadas perdem-se." for an edit ([Descartar] / [Continuar a editar]); an untouched sheet closes at once. A camera photo exists only in the app's cache until Save, so one Back used to lose it.
   - **Invalid characters in a fraction or project code, and every template error, are explained under the field in EN/PT**, from the rule the core applies (at most 16 characters, no spaces or braces); the core's English text is no longer shown. One code → message table for the banner and the fields.
   - **Deleting a plan that has observations says "Elimine-as primeiro"** (pins cannot move to another plan).
   - **Camera and picker failures show their own messages** (no camera app, no photo picker, a source that cannot be opened, HEIC on Android below 9); anything unknown shows "Erro inesperado." and its detail goes to `dev.log`.
   - **A start that cannot finish shows a message with the error, the data folder and the log file** (English and Portuguese) and writes `startup-error.log`, instead of the app disappearing; checked on the Mac with a corrupt database.
   - **Windows: a second launch focuses the running window** (`tauri-plugin-single-instance`, desktop only; the APK is unchanged).
-- Tests: Rust 150 (was 144), frontend 145 (was 130).
+- Tests: Rust 150 (was 144), frontend 147 (was 130).
 
 ## Sprint 6b — 2026-10-26 (v0.1.0: Windows Open and Save a copy, smaller report images, app switch during generation; D-029)
 - **Smaller report images (required for memory and size):**

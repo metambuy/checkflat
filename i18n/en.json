@@ -93,6 +93,7 @@
   "pin.edit": "Edit",
   "sheet.title_edit": "Edit observation",
   "sheet.discard_confirm": "Discard this observation? Unsaved photos and text will be lost.",
+  "sheet.discard_changes_confirm": "Discard changes? Unsaved changes will be lost.",
   "sheet.discard": "Discard",
   "sheet.keep_editing": "Keep editing",
   "photos.title": "Photos",

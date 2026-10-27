@@ -18,3 +18,11 @@ export function sheetIsDirty(s: SheetState, baselineDescription = ""): boolean {
     Object.keys(s.annotations).length > 0
   );
 }
+
+/**
+ * The "Discard?" question for a sheet: a new observation is discarded as a whole, an edit only loses
+ * its unsaved changes (the observation stays), and the text says which.
+ */
+export function discardMessageKey(mode: "create" | "edit"): "sheet.discard_confirm" | "sheet.discard_changes_confirm" {
+  return mode === "edit" ? "sheet.discard_changes_confirm" : "sheet.discard_confirm";
+}

@@ -93,6 +93,7 @@
   "pin.edit": "Editar",
   "sheet.title_edit": "Editar observação",
   "sheet.discard_confirm": "Descartar esta observação? As fotos e o texto não guardados perdem-se.",
+  "sheet.discard_changes_confirm": "Descartar as alterações? As alterações não guardadas perdem-se.",
   "sheet.discard": "Descartar",
   "sheet.keep_editing": "Continuar a editar",
   "photos.title": "Fotos",

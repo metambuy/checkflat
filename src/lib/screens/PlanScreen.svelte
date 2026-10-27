@@ -24,7 +24,7 @@
   import Icon from "../components/Icon.svelte";
   import { devlog } from "../devlog";
   import { createDraftSaver, DRAFT_KEY, restoreTarget, type SheetDraft, type SheetState } from "../sheet/draft";
-  import { sheetIsDirty } from "../sheet/discard";
+  import { discardMessageKey, sheetIsDirty } from "../sheet/discard";
   import { saveThenRefresh } from "../sheet/flow";
 
   import type { SheetPhotos } from "../sheet/photos";
@@ -390,7 +390,7 @@
   {/if}
   <ConfirmDialog
     open={confirmDiscard}
-    message={t("sheet.discard_confirm")}
+    message={t(discardMessageKey(sheet === "edit" ? "edit" : "create"))}
     confirmLabel={t("sheet.discard")}
     cancelLabel={t("sheet.keep_editing")}
     danger
