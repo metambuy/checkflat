@@ -113,6 +113,16 @@ macro_rules! handler {
     };
 }
 
+/// The running window comes to the front (a second launch asked for it).
+#[cfg(desktop)]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 /// Opens the data folder and the database (migrating it), sweeps, and manages the state.
 fn start(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = app.path().app_data_dir()?;
@@ -129,7 +139,13 @@ fn start(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Desktop only, and first: a second launch (a double click while WebView2 is still starting) hands
+    // over to the running window and exits before it opens the database, sweeps the files of a first
+    // instance that may be saving, or starts a second report (D-029, v0.1 review).
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)));
+    let builder = builder
         .plugin(tauri_plugin_camera_capture::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
