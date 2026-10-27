@@ -9,7 +9,8 @@
   - **Camera and picker failures show their own messages** (no camera app, no photo picker, a source that cannot be opened, HEIC on Android below 9); anything unknown shows "Erro inesperado." and its detail goes to `dev.log`.
   - **A start that cannot finish shows a message with the error, the data folder and the log file** (English and Portuguese) and writes `startup-error.log`, instead of the app disappearing. A locked database or a file in use says to close the other windows and try again; a corrupt or unreadable database, a failed migration or anything unknown says "Não apague esta pasta. Envie uma captura deste ecrã a quem lhe deu a aplicação."
   - **Windows: a second launch focuses the running window** (`tauri-plugin-single-instance`, desktop only; the APK is unchanged).
-- Tests: Rust 154 (was 144), frontend 147 (was 130).
+- **Ultrareview of PR #10 (cloud):** 3 findings. **Fixed:** opening or sharing a report again restarts its share copy's day, so the purge that the next Open/Share runs cannot remove a copy another app was just handed. The other two (one helper for the three part-file writers; the Back-at-root rule after a page reload during a run) are in the plan's backlog for Sprint 7.
+- Tests: Rust 155 (was 144), frontend 147 (was 130).
 
 ## Sprint 6b — 2026-10-26 (v0.1.0: Windows Open and Save a copy, smaller report images, app switch during generation; D-029)
 - **Smaller report images (required for memory and size):**
