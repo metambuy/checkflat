@@ -76,6 +76,8 @@
   "error.template_needs_one_seq": "The template needs exactly one {SEQ:2} (the number).",
   "error.template_repeated_token": "{PROJ} and {FRAC} can appear only once.",
   "error.template_frac_required": "{FRAC} is required when numbers run per fraction.",
+  "error.no_camera_app": "No camera app found on this device. Add the photo from the Gallery instead.",
+  "error.no_photo_picker": "No app found to pick photos from the gallery.",
   "error.fraction_in_use": "This fraction has issued numbers or is used by observations; it cannot be deleted.",
   "error.fraction_required": "Choose a fraction: numbers run per fraction in this project.",
   "error.photo_required": "Add at least one photo.",

@@ -56,6 +56,14 @@ class PdfArgs {
     var title: String? = null
 }
 
+/**
+ * A failure of the pick that the app has a message for. The `code` travels with the rejection
+ * (`invoke.reject(message, code)`), through the plugin's Rust error to the page, which translates it
+ * (src/lib/errors.ts, src/lib/pluginError.ts). Anything else the pick throws has no code and shows
+ * as the generic error, its text going to dev.log.
+ */
+private class PickFailure(val code: String, message: String) : java.io.IOException(message)
+
 @TauriPlugin
 class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
     private var pendingFile: File? = null
@@ -138,7 +146,7 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
             pendingFile = null
             prefs().edit().remove(PENDING_CAPTURE).commit()
             Log.w(TAG, "capture: no camera app")
-            invoke.reject("no camera app available")
+            invoke.reject("no camera app available", NO_CAMERA_APP)
         }
     }
 
@@ -205,7 +213,7 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
             pickPending = false
             pickInvoke = null
             unwatchPick()
-            invoke.reject("no photo picker available")
+            invoke.reject("no photo picker available", NO_PHOTO_PICKER)
         }
     }
 
@@ -259,11 +267,19 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
             try {
                 val dir = File(activity.cacheDir, PICKS).apply { mkdirs() }
                 val copy = File(dir, "PICK_${System.currentTimeMillis()}.img")
-                activity.contentResolver.openInputStream(uri)?.use { input ->
-                    copy.outputStream().use { input.copyTo(it) }
-                } ?: throw java.io.IOException("cannot open $uri")
+                try {
+                    activity.contentResolver.openInputStream(uri)?.use { input ->
+                        copy.outputStream().use { input.copyTo(it) }
+                    } ?: throw java.io.IOException("no stream")
+                } catch (e: Exception) {
+                    // A cloud-only item while offline, a provider that went away, a revoked grant.
+                    throw PickFailure(SOURCE_UNREADABLE, "cannot open $uri: ${e.message}")
+                }
                 val ready = prepare(copy)
                 invoke.resolve(JSObject().apply { put("path", ready.absolutePath) })
+            } catch (e: PickFailure) {
+                Log.w(TAG, "pick: failed (${e.code})", e)
+                invoke.reject(e.message ?: e.code, e.code)
             } catch (e: Exception) {
                 Log.w(TAG, "pick: failed", e)
                 invoke.reject(e.message ?: e.toString())
@@ -287,7 +303,7 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         if (!isHeif(file)) return file
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             file.delete()
-            throw java.io.IOException("image_unsupported: HEIF needs Android 9 or newer")
+            throw PickFailure(IMAGE_UNSUPPORTED, "HEIF needs Android 9 or newer")
         }
         val out = File(file.parentFile, file.nameWithoutExtension + ".jpg")
         try {
@@ -303,7 +319,7 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
             copyCaptureTime(file, out)
         } catch (e: Exception) {
             out.delete()
-            throw java.io.IOException("unreadable_image: ${e.message}")
+            throw PickFailure(UNREADABLE_IMAGE, e.message ?: e.toString())
         } finally {
             file.delete()
         }
@@ -439,6 +455,12 @@ class CameraCapturePlugin(private val activity: Activity) : Plugin(activity) {
         const val REPORTS = "reports"
         const val PDF = "application/pdf"
         const val NO_APP = "no_app"
+        // Codes of the rejections the app translates (src/lib/pluginError.ts keeps the list).
+        const val NO_CAMERA_APP = "no_camera_app"
+        const val NO_PHOTO_PICKER = "no_photo_picker"
+        const val SOURCE_UNREADABLE = "source_unreadable"
+        const val IMAGE_UNSUPPORTED = "image_unsupported"
+        const val UNREADABLE_IMAGE = "unreadable_image"
         const val TARGET_LONG_SIDE = 1600
         // Keep in step with `is_heif` in crates/checkflat-core/src/photos.rs.
         val HEIF_BRANDS = setOf("heic", "heix", "hevc", "hevx", "hevm", "hevs", "heim", "heis", "mif1", "mif2", "msf1")

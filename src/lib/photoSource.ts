@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, utcOffsetMin, type StagedPhoto } from "./api";
 import { devlog } from "./devlog";
+import { pluginError } from "./pluginError";
 import { isAndroid } from "./platform";
 
 const since = (t0: number) => Math.round(performance.now() - t0);
@@ -24,7 +25,9 @@ async function timed(kind: "camera" | "pick", get: () => Promise<string | null>)
     return path;
   } catch (e) {
     devlog(`${kind}: failed after ${since(t0)} ms: ${why(e)}`);
-    throw e;
+    // A rejection the app has a message for keeps its code; any other shows the generic error and
+    // its detail stays in dev.log (pluginError.ts).
+    throw pluginError(e, devlog);
   }
 }
 

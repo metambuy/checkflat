@@ -37,6 +37,8 @@ export function errorText(e: AppError, t: Translate): string {
     case "photo_limit": return t("error.photo_limit", { count: e.count ?? "?" });
     case "unreadable_image": return t("error.unreadable_image");
     case "image_unsupported": return t("error.image_unsupported");
+    case "no_camera_app": return t("error.no_camera_app");
+    case "no_photo_picker": return t("error.no_photo_picker");
     case "report": return t("error.report", { message: e.message });
     case "report_busy": return t("error.report_busy");
     case "no_report": return t("error.no_report");

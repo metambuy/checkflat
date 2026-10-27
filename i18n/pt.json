@@ -76,6 +76,8 @@
   "error.template_needs_one_seq": "O modelo precisa de exatamente um {SEQ:2} (o número).",
   "error.template_repeated_token": "{PROJ} e {FRAC} só podem aparecer uma vez.",
   "error.template_frac_required": "{FRAC} é obrigatório quando os números são por fração.",
+  "error.no_camera_app": "Não foi encontrada nenhuma aplicação de câmara neste dispositivo. Adicione a foto pela Galeria.",
+  "error.no_photo_picker": "Não foi encontrada nenhuma aplicação para escolher fotos da galeria.",
   "error.fraction_in_use": "Esta fração já atribuiu números ou é usada por observações; não pode ser removida.",
   "error.fraction_required": "Escolha uma fração: neste projeto os números são por fração.",
   "error.photo_required": "Adicione pelo menos uma foto.",
