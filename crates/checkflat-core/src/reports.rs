@@ -221,31 +221,41 @@ fn stamp_of<'a>(project_id: &str, file: &'a str) -> &'a str {
 
 /// Copies the project's latest report to `<share_root>/<project_id>/<stamp>/<readable name>` for
 /// another app to read, and returns the copy's path; `None` when there is no report. A folder per
-/// report (D-029): **a copy already made for this report is reused**, never rewritten. On Windows a
-/// PDF viewer such as Acrobat keeps the file it shows locked, so replacing it would fail when Open
-/// is pressed again. A new report gets a new folder, so a copy still held open never blocks it. A
-/// new copy goes through a part file and a rename, so a copy under the final name is always whole.
-/// Copies older than a day are removed first (a held one stays until it is released). Each project
-/// has its own folder, so two projects with the same name on the same day never share a copy.
+/// report (D-029): **a copy already made for this report is reused**, never rewritten, and its age
+/// starts again, so the next purge (of any project) cannot take a copy another app was just handed.
+/// On Windows a PDF viewer such as Acrobat keeps the file it shows locked, so replacing it would
+/// fail when Open is pressed again (and so would the age refresh: that is logged, not an error).
+/// A new report gets a new folder, so a copy still held open never blocks it. A new copy goes
+/// through a part file and a rename, so a copy under the final name is always whole. Copies older
+/// than a day are removed first (a held one stays until it is released). Each project has its own
+/// folder, so two projects with the same name on the same day never share a copy.
 pub fn share_copy(data_dir: &Path, project_id: &str, share_root: &Path) -> Result<Option<PathBuf>> {
     let Some(meta) = latest(data_dir, project_id)? else { return Ok(None) };
     purge_share_copies(share_root, SystemTime::now());
     let dir = share_root.join(project_id).join(stamp_of(project_id, &meta.file));
     let dest = dir.join(&meta.name);
     if std::fs::symlink_metadata(&dest).is_ok_and(|m| m.file_type().is_file() && m.len() == meta.bytes) {
+        if let Err(e) = touch(&dest) {
+            log::warn!("could not refresh the age of share copy {}: {e}", dest.display());
+        }
         return Ok(Some(dest));
     }
     std::fs::create_dir_all(&dir)?;
     let part = dir.join(format!("{}.part", meta.name));
     // The copy's age is its own (a clone may carry the source's mtime), so the purge counts from now.
     let copied = std::fs::copy(data_dir.join(REPORTS_DIR).join(&meta.file), &part)
-        .and_then(|_| std::fs::File::options().write(true).open(&part)?.set_modified(SystemTime::now()))
+        .and_then(|_| touch(&part))
         .and_then(|_| std::fs::rename(&part, &dest));
     if let Err(e) = copied {
         let _ = std::fs::remove_file(&part);
         return Err(e.into());
     }
     Ok(Some(dest))
+}
+
+/// Sets the file's modified time to now: a share copy's age counts from its last hand-off.
+fn touch(p: &Path) -> std::io::Result<()> {
+    std::fs::File::options().write(true).open(p)?.set_modified(SystemTime::now())
 }
 
 /// Copies the project's latest report to `dest`, a path the user chose in a save dialog (Windows'
@@ -598,11 +608,12 @@ mod tests {
         assert_eq!(std::fs::read(&cp).unwrap(), b"%PDF-p");
         assert_eq!(std::fs::read(&cq).unwrap(), b"%PDF-q");
 
-        // The same report again: the copy is reused, not rewritten.
-        set_age(&cp, 2);
-        let before = std::fs::metadata(&cp).unwrap().modified().unwrap();
+        // The same report again: the copy is reused, not rewritten (same length, other bytes, so
+        // the size check still takes it for the copy).
+        std::fs::write(&cp, b"%PDF-X").unwrap();
         assert_eq!(share_copy(&data, &p, &share).unwrap().unwrap(), cp);
-        assert_eq!(std::fs::metadata(&cp).unwrap().modified().unwrap(), before);
+        assert_eq!(std::fs::read(&cp).unwrap(), b"%PDF-X");
+        std::fs::write(&cp, b"%PDF-p").unwrap();
         assert_eq!(names(cp.parent().unwrap()), ["Obra - 2026-10-22.pdf"], "no part file left");
 
         // A new report of the same name gets its own folder; the earlier copy stays until it is old.
@@ -632,6 +643,36 @@ mod tests {
         remove_share_copies(&share, &p).unwrap();
         assert!(!share.join(&p).exists());
         remove_share_copies(&share, &p).unwrap();
+    }
+
+    /// Ultrareview of PR #10: a copy handed out again starts its day again. One made 23 h ago and
+    /// reused must outlive the purge that the next Open/Share runs a couple of hours later (of any
+    /// project), or the app that was handed it would lose the file.
+    #[test]
+    fn a_reused_share_copy_survives_the_next_purge() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let share = dir.path().join("cache/reports");
+        let (p, q) = (ids::new_id(), ids::new_id());
+        write_report(&data, &p, "20261022T100000000Z", b"%PDF-p", new_report("Obra - 2026-10-22.pdf")).unwrap();
+        write_report(&data, &q, "20261022T100000000Z", b"%PDF-q", new_report("Obra - 2026-10-22.pdf")).unwrap();
+        let cp = share_copy(&data, &p, &share).unwrap().unwrap();
+
+        set_age(&cp, 23);
+        assert_eq!(share_copy(&data, &p, &share).unwrap().unwrap(), cp);
+        let age = SystemTime::now().duration_since(std::fs::metadata(&cp).unwrap().modified().unwrap()).unwrap();
+        assert!(age < Duration::from_secs(3600), "the reuse restarted the copy's age, got {age:?}");
+
+        // Two hours later someone opens another project's report: p's copy is not old.
+        purge_share_copies(&share, SystemTime::now() + Duration::from_secs(2 * 3600));
+        assert!(cp.exists());
+        assert_eq!(std::fs::read(&cp).unwrap(), b"%PDF-p");
+
+        // Left alone, it still goes a day after its last hand-off (it is not kept forever), and
+        // opening q's report now purges it.
+        set_age(&cp, 25);
+        share_copy(&data, &q, &share).unwrap().unwrap();
+        assert!(!cp.exists());
     }
 
     /// Windows: a PDF viewer keeps the copy it shows locked (D-029). Open again must not fail, a new
